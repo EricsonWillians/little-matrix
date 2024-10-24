@@ -14,6 +14,7 @@ import argparse
 import logging
 import sys
 import os
+import random
 from agents.agent import Agent
 from environment.world import World
 from llm.client import LLMClient
@@ -64,7 +65,7 @@ def initialize_agents(num_agents: int, world: World, storage_manager: StorageMan
 
 def populate_world(world: World):
     """
-    Populates the simulation world with objects such as obstacles, resources, and hazards.
+    Populates the simulation world procedurally with objects such as obstacles, resources, and hazards.
 
     Args:
         world (World): The simulation world.
@@ -72,35 +73,35 @@ def populate_world(world: World):
     Returns:
         None
     """
-    obstacles = [
-        Obstacle(position=(10, 10)),
-        Obstacle(position=(15, 15)),
-        Obstacle(position=(20, 20)),
-        Obstacle(position=(25, 25)),
-        Obstacle(position=(30, 30)),
-    ]
-    for obstacle in obstacles:
+    # Randomize the number of objects for each type
+    num_obstacles = random.randint(5, 15)  # Between 5 and 15 obstacles
+    num_resources = random.randint(5, 10)  # Between 5 and 10 resources
+    num_hazards = random.randint(3, 8)     # Between 3 and 8 hazards
+
+    # Procedurally generate obstacles at random positions
+    for _ in range(num_obstacles):
+        position = world.get_random_empty_position()
+        obstacle = Obstacle(position=position)
         world.add_object(obstacle)
-        logging.debug(f"Obstacle added at position {obstacle.position}.")
+        logging.debug(f"Obstacle added at position {position}.")
 
-    resources = [
-        Resource(position=(5, 5), quantity=50, resource_type='energy'),
-        Resource(position=(25, 5), quantity=30, resource_type='material'),
-        Resource(position=(5, 25), quantity=20, resource_type='energy'),
-        Resource(position=(25, 25), quantity=40, resource_type='material'),
-    ]
-    for resource in resources:
+    # Procedurally generate resources with random quantities and types
+    resource_types = ['energy', 'material', 'food', 'water']
+    for _ in range(num_resources):
+        position = world.get_random_empty_position()
+        quantity = random.randint(10, 100)  # Random quantity between 10 and 100
+        resource_type = random.choice(resource_types)  # Randomly choose a resource type
+        resource = Resource(position=position, quantity=quantity, resource_type=resource_type)
         world.add_object(resource)
-        logging.debug(f"Resource '{resource.resource_type}' added at position {resource.position} with quantity {resource.quantity}.")
+        logging.debug(f"Resource '{resource_type}' added at position {position} with quantity {quantity}.")
 
-    hazards = [
-        Hazard(position=(35, 35), damage=10),
-        Hazard(position=(40, 40), damage=15),
-        Hazard(position=(45, 45), damage=20),
-    ]
-    for hazard in hazards:
+    # Procedurally generate hazards with random damage values
+    for _ in range(num_hazards):
+        position = world.get_random_empty_position()
+        damage = random.randint(5, 25)  # Random damage between 5 and 25
+        hazard = Hazard(position=position, damage=damage)
         world.add_object(hazard)
-        logging.debug(f"Hazard added at position {hazard.position} with damage {hazard.damage}.")
+        logging.debug(f"Hazard added at position {position} with damage {damage}.")
 
 
 def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_manager: StorageManager, renderer: Renderer = None):
@@ -127,9 +128,9 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
             # Agents perceive, decide, and act
             for agent in agents:
                 agent.perceive(world)
-                agent.decide()
-                agent.act(world)
-                agent.update_state()
+                agent.decide()  # Get decisions from LLM
+                agent.act(world)  # Perform the action decided
+                agent.update_state()  # Update internal state (health, energy, etc.)
                 storage_manager.save_agent_state(agent)
                 logging.debug(f"Agent '{agent.name}' state saved.")
 

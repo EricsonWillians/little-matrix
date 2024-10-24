@@ -89,16 +89,7 @@ class Agent:
         self.logger.debug(f"{self.name} perceived objects: {self.state['perceived_objects']}")
 
     def decide(self):
-        """
-        Makes a decision based on the perceived environment and internal state.
-
-        Uses the LLM to enhance decision-making with advanced reasoning.
-
-        Returns:
-            None
-        """
-        # Prepare variables for the prompt
-        # Serialize complex structures if necessary
+        # Prepare variables for the prompt...
         prompt_vars = {
             'agent_name': self.name,
             'state': ", ".join([f"{k}={v}" for k, v in self.state.items() if k not in ['perceived_agents', 'perceived_objects', 'action']]),
@@ -119,16 +110,16 @@ class Agent:
             return
 
         # Generate a response from the LLM using the constructed prompt
-        action = self.llm_client.generate_response(prompt)
-        action = action.strip().lower()
+        raw_response = self.llm_client.generate_response(prompt)
+        action = raw_response.split("\n")[-1].strip().lower()  # Extract the action from the response
 
-        # Validate the action
         valid_actions = {'move', 'collect', 'communicate', 'rest'}
         if action not in valid_actions:
             self.logger.warning(f"{self.name} received an invalid action '{action}'. Defaulting to 'rest'.")
             action = 'rest'
         self.state['action'] = action
         self.logger.info(f"{self.name} decided to '{self.state['action']}'.")
+
 
     def act(self, world: 'World'):
         """

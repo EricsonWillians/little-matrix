@@ -1,0 +1,30 @@
+# pyproject.toml
+
+[tool.poetry]
+name = "little-matrix"
+version = "0.1.0"
+description = "A simulation of tiny robots interacting within a simulated world using an LLM inference endpoint from Hugging Face."
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [
+    { include = "little_matrix" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+huggingface_hub = "^0.14.1"
+python-dotenv = "^0.19.0"
+PyYAML = "^6.0"
+# Add any additional dependencies here
+pygame = "^2.6.1"
+
+[tool.poetry.extras]
+# Define any optional dependencies here
+
+[tool.poetry.scripts]
+little-matrix = "little_matrix.main:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

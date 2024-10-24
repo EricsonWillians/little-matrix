@@ -1,0 +1,17 @@
+# config.yaml
+
+# Database configuration
+database: "little_matrix.db"
+
+# World dimensions
+world_width: 50
+world_height: 50
+
+# Number of agents to initialize in the simulation
+num_agents: 5
+
+# Additional simulation parameters can be added here
+# Example:
+# max_resource_quantity: 100
+# initial_agent_health: 100
+# logging_level: "INFO"

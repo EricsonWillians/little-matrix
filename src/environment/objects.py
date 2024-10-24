@@ -73,6 +73,15 @@ class WorldObject(ABC):
         """
         return False
 
+    def is_impassable(self) -> bool:
+        """
+        Determines whether the object is impassable (blocks agent movement).
+
+        Returns:
+            bool: True if the object is impassable, False otherwise.
+        """
+        return False  # Default to passable
+
 
 class Obstacle(WorldObject):
     """
@@ -99,14 +108,14 @@ class Obstacle(WorldObject):
         """
         self.logger.debug(f"Agent '{agent.name}' tried to interact with an Obstacle at {self.position}.")
 
-    def should_be_removed(self) -> bool:
+    def is_impassable(self) -> bool:
         """
-        Obstacles are static and remain indefinitely.
+        Obstacles are always impassable.
 
         Returns:
-            bool: False, obstacles are not removed.
+            bool: True, as obstacles block movement.
         """
-        return False
+        return True
 
 
 class Resource(WorldObject):
@@ -188,24 +197,14 @@ class Hazard(WorldObject):
         agent.take_damage(self.damage)
         self.logger.debug(f"Agent '{agent.name}' took {self.damage} damage from Hazard at {self.position}.")
 
-    def should_be_removed(self) -> bool:
+    def is_impassable(self) -> bool:
         """
-        Hazards may remain indefinitely or be temporary.
+        Hazards are typically passable but dangerous.
 
         Returns:
-            bool: False, unless overridden to implement temporary hazards.
+            bool: False, as agents can move through hazards (at their own risk).
         """
         return False
-
-    def update(self, world: 'World'):
-        """
-        Updates the state of the hazard.
-
-        Args:
-            world (World): The simulation world.
-        """
-        # Implement logic if the hazard changes over time (e.g., dissipates).
-        pass
 
 
 class Collectible(WorldObject):
@@ -238,7 +237,7 @@ class Collectible(WorldObject):
 
     def interact(self, agent: 'Agent'):
         """
-        Allows the agent to collect the item.
+         Allows the agent to collect the item.
 
         Args:
             agent (Agent): The agent interacting with the collectible.
@@ -343,19 +342,11 @@ class TerrainFeature(WorldObject):
             agent.modify_visibility(-1)  # Agent's visibility reduced in forest.
             self.logger.debug(f"Agent '{agent.name}' visibility reduced due to Forest at {self.position}.")
 
-    def should_be_removed(self) -> bool:
+    def is_impassable(self) -> bool:
         """
-        Terrain features are permanent.
+        Terrain features can be impassable depending on their type.
 
         Returns:
-            bool: False, terrain features are not removed.
+            bool: True if the feature is impassable, False otherwise.
         """
-        return False
-
-
-# Example of how to handle missing Agent and World classes during type checking.
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agents.agent import Agent
-    from environment.world import World
+        return self.feature_type in ['mountain', 'water']  # Example impassable terrain types

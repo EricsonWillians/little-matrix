@@ -103,7 +103,6 @@ def populate_world(world: World):
         world.add_object(hazard)
         logging.debug(f"Hazard added at position {position} with damage {damage}.")
 
-
 def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_manager: StorageManager, renderer: Renderer = None):
     """
     Runs the main simulation loop for a specified number of timesteps.
@@ -128,9 +127,14 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
             # Agents perceive, decide, and act
             for agent in agents:
                 agent.perceive(world)
-                agent.decide()  # Get decisions from LLM
+                agent.decide()  # This method updates the agent's state with the decided action
                 agent.act(world)  # Perform the action decided
-                agent.update_state()  # Update internal state (health, energy, etc.)
+                
+                # Update agent's state
+                agent.state['energy'] -= 1  # Decrease energy each timestep
+                if agent.state['energy'] <= 0:
+                    agent.state['health'] -= 1  # Decrease health if energy is depleted
+                
                 storage_manager.save_agent_state(agent)
                 logging.debug(f"Agent '{agent.name}' state saved.")
 
@@ -147,7 +151,6 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
             renderer.close()
         storage_manager.close()
         logging.info("Simulation ended.")
-
 
 def main():
     """

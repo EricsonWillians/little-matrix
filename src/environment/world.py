@@ -18,7 +18,6 @@ from environment.objects import WorldObject
 if TYPE_CHECKING:
     from agents.agent import Agent
 
-
 class World:
     """
     Represents the simulation environment.
@@ -41,12 +40,13 @@ class World:
         """
         self.width = width
         self.height = height
-        self.agents: Dict[str, 'Agent'] = {}  # Keyed by agent name
-        self.objects: Dict[Tuple[int, int], List[WorldObject]] = {}  # Keyed by position
+        self.agents: Dict[str, 'Agent'] = {}
+        self.objects: Dict[Tuple[int, int], List[WorldObject]] = {}
+        self.current_time = 0
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"World initialized with size ({self.width}, {self.height})")
 
-    def add_agent(self, agent: 'Agent', position: Optional[Tuple[int, int]] = None):
+    def add_agent(self, agent: 'Agent', position: Optional[Tuple[int, int]] = None) -> None:
         """
         Adds an agent to the world at a specified position.
 
@@ -62,13 +62,13 @@ class World:
             position = self.get_random_empty_position()
         if not self.is_position_valid(position):
             raise ValueError(f"Invalid position {position} for agent '{agent.name}'")
-        if self.is_position_occupied_by_agent(position):
-            raise ValueError(f"Position {position} is already occupied by another agent.")
+        if self.is_position_occupied(position):
+            raise ValueError(f"Position {position} is already occupied.")
         agent.position = position
         self.agents[agent.name] = agent
         self.logger.info(f"Agent '{agent.name}' added at position {position}")
 
-    def remove_agent(self, agent: 'Agent'):
+    def remove_agent(self, agent: 'Agent') -> None:
         """
         Removes an agent from the world.
 
@@ -79,19 +79,22 @@ class World:
             del self.agents[agent.name]
             self.logger.info(f"Agent '{agent.name}' removed from the world.")
 
-    def add_object(self, obj: WorldObject):
+    def add_object(self, obj: WorldObject) -> None:
         """
         Adds an object to the world at its specified position.
 
         Args:
             obj (WorldObject): The object to add.
+
+        Raises:
+            ValueError: If the position is invalid.
         """
         if not self.is_position_valid(obj.position):
             raise ValueError(f"Invalid position {obj.position} for object of type '{type(obj).__name__}'")
         self.objects.setdefault(obj.position, []).append(obj)
         self.logger.info(f"Object of type '{type(obj).__name__}' added at position {obj.position}")
 
-    def remove_object(self, obj: WorldObject):
+    def remove_object(self, obj: WorldObject) -> None:
         """
         Removes an object from the world.
 
@@ -105,7 +108,7 @@ class World:
                 del self.objects[position]
             self.logger.info(f"Object of type '{type(obj).__name__}' removed from position {position}")
 
-    def move_agent(self, agent: 'Agent', new_position: Tuple[int, int]):
+    def move_agent(self, agent: 'Agent', new_position: Tuple[int, int]) -> bool:
         """
         Moves an agent to a new position in the world.
 
@@ -113,16 +116,15 @@ class World:
             agent (Agent): The agent to move.
             new_position (Tuple[int, int]): The new (x, y) position.
 
-        Raises:
-            ValueError: If the new position is invalid or occupied.
+        Returns:
+            bool: True if the move was successful, False otherwise.
         """
-        if not self.is_position_valid(new_position):
-            raise ValueError(f"Invalid position {new_position} for agent '{agent.name}'")
-        if self.is_position_occupied_by_agent(new_position):
-            raise ValueError(f"Position {new_position} is already occupied by another agent.")
+        if not self.is_position_valid(new_position) or self.is_position_occupied(new_position):
+            return False
         old_position = agent.position
         agent.position = new_position
         self.logger.info(f"Agent '{agent.name}' moved from {old_position} to {new_position}")
+        return True
 
     def get_agents_within_radius(self, position: Tuple[int, int], radius: int) -> List['Agent']:
         """
@@ -135,14 +137,8 @@ class World:
         Returns:
             List[Agent]: A list of agents within the radius.
         """
-        nearby_agents = []
-        x0, y0 = position
-        for agent in self.agents.values():
-            x1, y1 = agent.position
-            distance = abs(x1 - x0) + abs(y1 - y0)  # Manhattan distance
-            if distance <= radius and agent.position != position:
-                nearby_agents.append(agent)
-        return nearby_agents
+        return [agent for agent in self.agents.values() 
+                if self.manhattan_distance(position, agent.position) <= radius]
 
     def get_objects_within_radius(self, position: Tuple[int, int], radius: int) -> List[WorldObject]:
         """
@@ -156,18 +152,9 @@ class World:
             List[WorldObject]: A list of objects within the radius.
         """
         objects_in_radius = []
-        x_min = max(0, position[0] - radius)
-        x_max = min(self.width - 1, position[0] + radius)
-        y_min = max(0, position[1] - radius)
-        y_max = min(self.height - 1, position[1] + radius)
-
-        for x in range(x_min, x_max + 1):
-            for y in range(y_min, y_max + 1):
-                distance = abs(position[0] - x) + abs(position[1] - y)
-                if distance <= radius:
-                    pos = (x, y)
-                    if pos in self.objects:
-                        objects_in_radius.extend(self.objects[pos])
+        for pos, objects in self.objects.items():
+            if self.manhattan_distance(position, pos) <= radius:
+                objects_in_radius.extend(objects)
         return objects_in_radius
 
     def get_objects_at_position(self, position: Tuple[int, int]) -> List[WorldObject]:
@@ -195,20 +182,18 @@ class World:
         x, y = position
         return 0 <= x < self.width and 0 <= y < self.height
 
-    def is_position_occupied_by_agent(self, position: Tuple[int, int]) -> bool:
+    def is_position_occupied(self, position: Tuple[int, int]) -> bool:
         """
-        Checks if a position is occupied by an agent.
+        Checks if a position is occupied by an agent or an impassable object.
 
         Args:
             position (Tuple[int, int]): The (x, y) position to check.
 
         Returns:
-            bool: True if the position is occupied by an agent, False otherwise.
+            bool: True if the position is occupied, False otherwise.
         """
-        for agent in self.agents.values():
-            if agent.position == position:
-                return True
-        return False
+        return (any(agent.position == position for agent in self.agents.values()) or
+                any(obj.is_impassable() for obj in self.objects.get(position, [])))
 
     def get_random_empty_position(self) -> Tuple[int, int]:
         """
@@ -220,27 +205,24 @@ class World:
         Raises:
             ValueError: If no empty positions are available.
         """
-        all_positions = [(x, y) for x in range(self.width) for y in range(self.height)]
-        occupied_positions = {agent.position for agent in self.agents.values()}
-        occupied_positions.update(self.objects.keys())
-        empty_positions = [pos for pos in all_positions if pos not in occupied_positions]
+        empty_positions = [(x, y) for x in range(self.width) for y in range(self.height)
+                        if not self.is_position_occupied((x, y))]
         if not empty_positions:
             raise ValueError("No empty positions available in the world.")
-        position = random.choice(empty_positions)
-        self.logger.debug(f"Random empty position found at {position}")
-        return position
+        return random.choice(empty_positions)  # Corrected this line
 
-    def update(self):
+    def update(self) -> None:
         """
         Updates the state of the world.
 
         This method handles environmental dynamics, such as object updates, hazards, resource regeneration, etc.
         """
-        # Update objects if necessary
+
+        self.current_time += 1
+
         for position, objects in list(self.objects.items()):
             for obj in objects[:]:
                 obj.update(self)
-                # If the object is depleted or should be removed
                 if obj.should_be_removed():
                     self.remove_object(obj)
                     self.logger.info(f"Object '{obj}' at {position} has been removed.")
@@ -262,8 +244,7 @@ class World:
             (x - 1, y),  # Left
             (x + 1, y),  # Right
         ]
-        valid_positions = [pos for pos in potential_positions if self.is_position_valid(pos)]
-        return valid_positions
+        return [pos for pos in potential_positions if self.is_position_valid(pos)]
 
     def get_empty_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
@@ -275,9 +256,7 @@ class World:
         Returns:
             List[Tuple[int, int]]: A list of empty adjacent positions.
         """
-        adjacent_positions = self.get_adjacent_positions(position)
-        empty_positions = [pos for pos in adjacent_positions if not self.is_position_occupied_by_agent(pos)]
-        return empty_positions
+        return [pos for pos in self.get_adjacent_positions(position) if not self.is_position_occupied(pos)]
 
     def get_agent_at_position(self, position: Tuple[int, int]) -> Optional['Agent']:
         """
@@ -294,78 +273,20 @@ class World:
                 return agent
         return None
 
-    def move_agent(self, agent: 'Agent', new_position: Tuple[int, int]):
+    def manhattan_distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> int:
         """
-        Moves an agent to a new position in the world.
+        Calculates the Manhattan distance between two positions.
 
         Args:
-            agent (Agent): The agent to move.
-            new_position (Tuple[int, int]): The new (x, y) position.
-
-        Raises:
-            ValueError: If the new position is invalid or occupied.
-        """
-        if not self.is_position_valid(new_position):
-            raise ValueError(f"Invalid position {new_position} for agent '{agent.name}'")
-        if self.is_position_occupied_by_agent(new_position):
-            raise ValueError(f"Position {new_position} is already occupied by another agent.")
-        old_position = agent.position
-        agent.position = new_position
-        self.logger.info(f"Agent '{agent.name}' moved from {old_position} to {new_position}")
-
-    def is_position_occupied(self, position: Tuple[int, int]) -> bool:
-        """
-        Checks if a position is occupied by an agent or an impassable object.
-
-        Args:
-            position (Tuple[int, int]): The (x, y) position to check.
+            pos1 (Tuple[int, int]): The first position.
+            pos2 (Tuple[int, int]): The second position.
 
         Returns:
-            bool: True if the position is occupied, False otherwise.
+            int: The Manhattan distance between the positions.
         """
-        if self.is_position_occupied_by_agent(position):
-            return True
-        if position in self.objects:
-            for obj in self.objects[position]:
-                if obj.is_impassable():
-                    return True
-        return False
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
-    def get_entities_within_radius(self, position: Tuple[int, int], radius: int) -> Dict[Tuple[int, int], List]:
-        """
-        Retrieves agents and objects within a certain radius from a position.
-
-        Args:
-            position (Tuple[int, int]): The central position.
-            radius (int): The radius within which to search.
-
-        Returns:
-            Dict[Tuple[int, int], List]: A dictionary mapping positions to lists of entities (agents and objects).
-        """
-        entities = {}
-        x_min = max(0, position[0] - radius)
-        x_max = min(self.width - 1, position[0] + radius)
-        y_min = max(0, position[1] - radius)
-        y_max = min(self.height - 1, position[1] + radius)
-
-        for x in range(x_min, x_max + 1):
-            for y in range(y_min, y_max + 1):
-                distance = abs(position[0] - x) + abs(position[1] - y)
-                if distance <= radius:
-                    pos = (x, y)
-                    entities_at_pos = []
-                    # Check for agents at this position
-                    agent = self.get_agent_at_position(pos)
-                    if agent:
-                        entities_at_pos.append(agent)
-                    # Check for objects at this position
-                    if pos in self.objects:
-                        entities_at_pos.extend(self.objects[pos])
-                    if entities_at_pos:
-                        entities[pos] = entities_at_pos
-        return entities
-
-    def render(self):
+    def render(self) -> None:
         """
         Renders the world's current state to the console.
 

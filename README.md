@@ -1,6 +1,6 @@
 # Little Matrix Simulation
 
-![Little Matrix Simulation Logo](assets/logo.png)
+![Little Matrix Simulation Logo](assets/logo.webp)
 
 Welcome to the **Little Matrix Simulation**, a sophisticated and autonomous agent-based simulation powered by advanced Language Learning Models (LLMs) from Hugging Face. This project demonstrates how agents can perceive their environment, make intelligent decisions, and interact within a simulated world using natural language processing capabilities.
 
@@ -165,23 +165,50 @@ python3 src/main.py --render --timesteps 200
 ## Project Structure
 
 ```
-little-matrix-simulation/
-├── agents/
-│   └── agent.py
-├── environment/
-│   ├── objects.py
-│   └── world.py
-├── llm/
-│   ├── client.py
-│   └── prompts.py
-├── src/
-│   └── main.py
-├── assets/
-│   └── logo.png
-├── renderer.py
-├── requirements.txt
+├── config.yaml
+├── LICENSE
+├── little_matrix.db
+├── poetry.lock
+├── pyproject.toml
 ├── README.md
-└── .env
+├── setup.py
+├── src
+│   ├── agents
+│   │   ├── agent.py
+│   │   ├── behaviors.py
+│   │   ├── __init__.py
+│   │   └── __pycache__
+│   ├── assets
+│   │   └── logo.webp
+│   ├── data
+│   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   └── storage.py
+│   ├── environment
+│   │   ├── __init__.py
+│   │   ├── objects.py
+│   │   ├── __pycache__
+│   │   └── world.py
+│   ├── __init__.py
+│   ├── llm
+│   │   ├── client.py
+│   │   ├── __init__.py
+│   │   ├── prompts.py
+│   │   └── __pycache__
+│   ├── main.py
+│   ├── __pycache__
+│   ├── renderer.py
+│   └── utils
+│       ├── config.py
+│       ├── __init__.py
+│       ├── logger.py
+│       └── __pycache__
+└── tests
+    ├── __init__.py
+    ├── test_agents.py
+    ├── test_environment.py
+    ├── test_llm.py
+    └── test_utils.py
 ```
 
 - **agents/**: Contains the `Agent` class definition.

@@ -1,6 +1,6 @@
 # Little Matrix Simulation
 
-![Little Matrix Simulation Logo](assets/logo.webp)
+![Little Matrix Simulation Logo](src/assets/logo.webp)
 
 Welcome to the **Little Matrix Simulation**, a sophisticated and autonomous agent-based simulation powered by advanced Language Learning Models (LLMs) from Hugging Face. This project demonstrates how agents can perceive their environment, make intelligent decisions, and interact within a simulated world using natural language processing capabilities.
 

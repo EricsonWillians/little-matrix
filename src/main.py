@@ -1,3 +1,5 @@
+# src/main.py
+
 """
 Main module for the little-matrix simulation.
 
@@ -15,100 +17,89 @@ import logging
 import sys
 import os
 import random
-from agents.agent import Agent
-from environment.world import World
-from llm.client import LLMClient
-from data.storage import StorageManager
-from utils.logger import setup_logging
-from utils.config import load_config
-from renderer import Renderer  # Import the Renderer class
-from environment.objects import Obstacle, Resource, Hazard
-from typing import List
+from typing import List, Optional
+from src.agents.agent import Agent
+from src.environment.world import World
+from src.llm.client import LLMClient
+from src.data.storage import StorageManager
+from src.utils.logger import setup_logging
+from src.utils.config import load_config, Config
+from src.renderer import Renderer  # Import the Renderer class
+from src.environment.objects import Obstacle, Resource, Hazard
+from src.environment.world_helpers import populate_world  # Newly integrated function
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
+from src.utils.config import AgentTypeBehaviorTraits
 
-def initialize_agents(num_agents: int, world: World, storage_manager: StorageManager, llm_client: LLMClient) -> List[Agent]:
+def initialize_agents(config: Config, world: World, storage_manager: StorageManager, llm_client: LLMClient) -> List[Agent]:
     """
-    Initializes agents for the simulation, either by loading existing agents from storage or creating new ones.
+    Initializes agents in the simulation.
 
     Args:
-        num_agents (int): The number of agents to initialize.
+        config (Config): Configuration settings.
         world (World): The simulation world.
         storage_manager (StorageManager): Manages persistence of agent states.
-        llm_client (LLMClient): The LLM client for generating agent responses.
+        llm_client (LLMClient): The client for interacting with the LLM.
 
     Returns:
         List[Agent]: A list of initialized agents.
     """
     agents = []
+    agent_configs = config.agents
+    num_agents = agent_configs.count
+
     for i in range(num_agents):
         agent_name = f"Agent_{i}"
         agent_data = storage_manager.load_agent_state(agent_name)
         if agent_data:
-            agent = Agent(name=agent_name, llm_client=llm_client)
-            agent.state = agent_data['state']
+            behavior_traits = agent_data.get('behavior_traits', {})
+            if isinstance(behavior_traits, dict):
+                behavior_traits = AgentTypeBehaviorTraits(**behavior_traits)  # Convert dictionary to AgentTypeBehaviorTraits
+
+            agent = Agent(
+                name=agent_name,
+                llm_client=llm_client,
+                config=config,
+                position=agent_data['position'],
+                state=agent_data['state'],
+                agent_type=agent_configs.customization.types[0],
+                behavior_traits=behavior_traits
+            )
             agent.knowledge_base = agent_data['knowledge_base']
             agent.position = agent_data['position']
             logging.info(f"Loaded existing agent '{agent_name}' from storage at position {agent.position}.")
         else:
             # Assign a random empty position to the new agent
             position = world.get_random_empty_position()
-            agent = Agent(name=agent_name, llm_client=llm_client, position=position)
-            logging.info(f"Created new agent '{agent_name}' at position {position}.")
+            # Randomly assign an agent type from the configuration
+            agent_type_config = random.choice(agent_configs.customization.types)
+            behavior_traits = agent_type_config.behavior_traits
+            if isinstance(behavior_traits, dict):
+                behavior_traits = AgentTypeBehaviorTraits(**behavior_traits)  # Ensure it's the correct type
+            
+            agent = Agent(
+                name=agent_name,
+                llm_client=llm_client,
+                config=config,
+                position=position,
+                agent_type=agent_type_config,
+                behavior_traits=behavior_traits
+            )
+            logging.info(f"Created new agent '{agent_name}' of type '{agent_type_config.name}' at position {position}.")
         agents.append(agent)
         world.add_agent(agent, position=agent.position)
     return agents
 
 
-def populate_world(world: World):
-    """
-    Populates the simulation world procedurally with objects such as obstacles, resources, and hazards.
-
-    Args:
-        world (World): The simulation world.
-
-    Returns:
-        None
-    """
-    # Randomize the number of objects for each type
-    num_obstacles = random.randint(5, 15)  # Between 5 and 15 obstacles
-    num_resources = random.randint(5, 10)  # Between 5 and 10 resources
-    num_hazards = random.randint(3, 8)     # Between 3 and 8 hazards
-
-    # Procedurally generate obstacles at random positions
-    for _ in range(num_obstacles):
-        position = world.get_random_empty_position()
-        obstacle = Obstacle(position=position)
-        world.add_object(obstacle)
-        logging.debug(f"Obstacle added at position {position}.")
-
-    # Procedurally generate resources with random quantities and types
-    resource_types = ['energy', 'material', 'food', 'water']
-    for _ in range(num_resources):
-        position = world.get_random_empty_position()
-        quantity = random.randint(10, 100)  # Random quantity between 10 and 100
-        resource_type = random.choice(resource_types)  # Randomly choose a resource type
-        resource = Resource(position=position, quantity=quantity, resource_type=resource_type)
-        world.add_object(resource)
-        logging.debug(f"Resource '{resource_type}' added at position {position} with quantity {quantity}.")
-
-    # Procedurally generate hazards with random damage values
-    for _ in range(num_hazards):
-        position = world.get_random_empty_position()
-        damage = random.randint(5, 25)  # Random damage between 5 and 25
-        hazard = Hazard(position=position, damage=damage)
-        world.add_object(hazard)
-        logging.debug(f"Hazard added at position {position} with damage {damage}.")
-
-def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_manager: StorageManager, renderer: Renderer = None):
+def run_simulation(config: Config, agents: List[Agent], world: World, storage_manager: StorageManager, renderer: Optional[Renderer] = None):
     """
     Runs the main simulation loop for a specified number of timesteps.
 
     Args:
-        timesteps (int): The number of timesteps to run the simulation.
+        config (Config): Configuration settings.
         agents (List[Agent]): The list of agents in the simulation.
         world (World): The simulation world.
         storage_manager (StorageManager): Manages persistence of agent states.
@@ -117,6 +108,7 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
     Returns:
         None
     """
+    timesteps = config.simulation.timesteps
     try:
         for timestep in range(timesteps):
             logging.info(f"--- Timestep {timestep + 1}/{timesteps} ---")
@@ -124,25 +116,30 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
             if renderer:
                 renderer.handle_events()
 
-            # Agents perceive, decide, and act
             for agent in agents:
                 agent.perceive(world)
-                agent.decide()  # This method updates the agent's state with the decided action
-                agent.act(world)  # Perform the action decided
-                
-                # Update agent's state
-                agent.state['energy'] -= 1  # Decrease energy each timestep
+                agent.decide()
+                agent.act(world)
+
+                # Update agent's state and check if they are still alive
                 if agent.state['energy'] <= 0:
                     agent.state['health'] -= 1  # Decrease health if energy is depleted
-                
+
+                if agent.state['health'] <= 0:
+                    logging.info(f"Agent '{agent.name}' has died.")
+                    world.remove_agent(agent)
+                    agents.remove(agent)
+                    continue
+
                 storage_manager.save_agent_state(agent)
-                logging.debug(f"Agent '{agent.name}' state saved.")
 
             world.update()
-            logging.debug("World state updated.")
-
             if renderer:
                 renderer.render()
+
+            # Save simulation state at intervals
+            if config.simulation.save_state_interval and (timestep + 1) % config.simulation.save_state_interval == 0:
+                logging.info(f"Simulation state saved at timestep {timestep + 1}.")
 
     except KeyboardInterrupt:
         logging.info("Simulation interrupted by user.")
@@ -152,6 +149,7 @@ def run_simulation(timesteps: int, agents: List[Agent], world: World, storage_ma
         storage_manager.close()
         logging.info("Simulation ended.")
 
+
 def main():
     """
     Runs the little-matrix simulation.
@@ -159,59 +157,46 @@ def main():
     This function initializes the logging system, parses command-line arguments, loads configuration settings,
     initializes the storage manager, LLM client, world, and agents, and then enters the main simulation loop.
     """
-    setup_logging(log_level=logging.INFO)
-
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run the little-matrix simulation.")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to the configuration file.")
     parser.add_argument("--timesteps", type=int, default=None, help="Number of timesteps to run the simulation.")
     parser.add_argument("--render", action="store_true", help="Render the world visually using Pygame.")
+    parser.add_argument("--log_level", type=str, default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR).")
     args = parser.parse_args()
 
-    # Load configuration
+    setup_logging(log_level=args.log_level.upper())
     config = load_config(args.config)
 
-    # Override timesteps if provided as an argument
-    timesteps = args.timesteps if args.timesteps is not None else config.get("timesteps", 100)
+    if args.timesteps is not None:
+        config.simulation.timesteps = args.timesteps
 
-    # Retrieve the API key and model from environment variables
-    api_key = os.getenv("API_KEY")
-    model = os.getenv("MODEL_ID")
-
+    api_key, model = config.llm.api_key, config.llm.model
     if not api_key or not model:
-        logging.error("API_KEY or MODEL_ID not set in the environment variables.")
+        logging.error("API key or model not provided in the configuration.")
         sys.exit(1)
 
-    # Initialize components
-    storage_manager = StorageManager(db_file=config.get("database", "little_matrix.db"))
-    llm_client = LLMClient(api_key=api_key, model=model)
-    world_width = config.get("world_width", 50)
-    world_height = config.get("world_height", 50)
-    world = World(width=world_width, height=world_height)
+    storage_manager = StorageManager(config=config)
+    llm_client = LLMClient(config=config)
+    world = World(config=config)
 
-    logging.info(f"Simulation world initialized with size ({world_width}, {world_height}).")
+    logging.info(f"Simulation world initialized with size ({world.width}, {world.height}).")
 
-    # Initialize agents
-    num_agents = config.get("num_agents", 10)
-    agents = initialize_agents(num_agents, world, storage_manager, llm_client)
+    agents = initialize_agents(config, world, storage_manager, llm_client)
     logging.info(f"Initialized {len(agents)} agents in the simulation.")
 
-    # Populate the world with objects
-    populate_world(world)
+    # Seamlessly integrate the world population
+    populate_world(world, config)
 
-    # Initialize renderer if rendering is enabled
-    if args.render:
+    renderer = None
+    if args.render and config.simulation.render:
         try:
-            renderer = Renderer(world)
+            renderer = Renderer(world, config)
             logging.info("Renderer initialized.")
         except ImportError as e:
             logging.error(f"Failed to initialize renderer: {e}")
             sys.exit(1)
-    else:
-        renderer = None
 
-    # Run the simulation
-    run_simulation(timesteps, agents, world, storage_manager, renderer)
+    run_simulation(config, agents, world, storage_manager, renderer)
 
 
 if __name__ == "__main__":

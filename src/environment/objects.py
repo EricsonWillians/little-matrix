@@ -1,4 +1,4 @@
-# objects.py
+# src/environment/objects.py
 
 """
 Objects module for the little-matrix simulation.
@@ -18,8 +18,14 @@ Classes:
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 import logging
+from ..utils.config import Config
+
+if 'Agent' in globals():
+    from agents.agent import Agent
+else:
+    Agent = Any  # Fallback for type hints if Agent is not imported
 
 class WorldObject(ABC):
     """
@@ -45,21 +51,24 @@ class WorldObject(ABC):
         self.logger.debug(f"{self.__class__.__name__} initialized at position {self.position}.")
 
     @abstractmethod
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Defines how an agent interacts with the object.
 
         Args:
             agent (Agent): The agent interacting with the object.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         pass
 
-    def update(self, world: 'World'):
+    def update(self, world: 'World', config: Config):
         """
         Updates the state of the object. Called each timestep.
 
         Args:
             world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         # Default implementation does nothing.
         pass
@@ -90,21 +99,24 @@ class Obstacle(WorldObject):
     Obstacles prevent agents from moving into their position.
     """
 
-    def __init__(self, position: Tuple[int, int]):
+    def __init__(self, position: Tuple[int, int], symbol: str = 'X'):
         """
         Initializes the Obstacle.
 
         Args:
             position (Tuple[int, int]): The (x, y) position of the obstacle.
+            symbol (str): Symbol representing the obstacle.
         """
-        super().__init__(position, symbol='X')
+        super().__init__(position, symbol=symbol)
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Interaction with an obstacle prevents the agent from moving into the obstacle's position.
 
         Args:
             agent (Agent): The agent attempting to interact with the obstacle.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         self.logger.debug(f"Agent '{agent.name}' tried to interact with an Obstacle at {self.position}.")
 
@@ -124,10 +136,10 @@ class Resource(WorldObject):
 
     Attributes:
         quantity (int): The amount of resource available.
-        resource_type (str): The type of resource (e.g., 'energy', 'material').
+        resource_type (str): The type of resource (e.g., 'Food', 'Water', 'Metal').
     """
 
-    def __init__(self, position: Tuple[int, int], quantity: int, resource_type: str):
+    def __init__(self, position: Tuple[int, int], quantity: int, resource_type: str, config: Config):
         """
         Initializes the Resource.
 
@@ -135,23 +147,22 @@ class Resource(WorldObject):
             position (Tuple[int, int]): The (x, y) position of the resource.
             quantity (int): The initial quantity of the resource.
             resource_type (str): The type of resource.
+            config (Config): Configuration settings.
         """
-        symbol_map = {
-            'energy': 'E',
-            'material': 'M',
-            # Add more resource types and their symbols as needed.
-        }
-        symbol = symbol_map.get(resource_type, '?')
+        resource_config = next((res for res in config.environment.resource.types if res.name == resource_type), None)
+        symbol = resource_config.symbol if resource_config else '?'
         super().__init__(position, symbol=symbol)
         self.quantity = quantity
         self.resource_type = resource_type
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Allows an agent to collect the resource.
 
         Args:
             agent (Agent): The agent interacting with the resource.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         if self.quantity > 0:
             collected_amount = agent.collect_resource(self.resource_type, self.quantity)
@@ -176,23 +187,26 @@ class Hazard(WorldObject):
         damage (int): The amount of damage inflicted on an agent.
     """
 
-    def __init__(self, position: Tuple[int, int], damage: int):
+    def __init__(self, position: Tuple[int, int], damage: int, symbol: str = 'H'):
         """
         Initializes the Hazard.
 
         Args:
             position (Tuple[int, int]): The (x, y) position of the hazard.
             damage (int): The damage inflicted on agents.
+            symbol (str): Symbol representing the hazard.
         """
-        super().__init__(position, symbol='H')
+        super().__init__(position, symbol=symbol)
         self.damage = damage
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Inflicts damage on the agent.
 
         Args:
             agent (Agent): The agent interacting with the hazard.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         agent.take_damage(self.damage)
         self.logger.debug(f"Agent '{agent.name}' took {self.damage} damage from Hazard at {self.position}.")
@@ -216,7 +230,7 @@ class Collectible(WorldObject):
         value (int): The value or effect of the item.
     """
 
-    def __init__(self, position: Tuple[int, int], item_type: str, value: int):
+    def __init__(self, position: Tuple[int, int], item_type: str, value: int, symbol: str = 'I'):
         """
         Initializes the Collectible.
 
@@ -224,23 +238,20 @@ class Collectible(WorldObject):
             position (Tuple[int, int]): The (x, y) position of the collectible.
             item_type (str): The type of the item.
             value (int): The value or effect of the item.
+            symbol (str): Symbol representing the collectible.
         """
-        symbol_map = {
-            'coin': 'C',
-            'gem': 'G',
-            # Add more item types and their symbols as needed.
-        }
-        symbol = symbol_map.get(item_type, '?')
         super().__init__(position, symbol=symbol)
         self.item_type = item_type
         self.value = value
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
-         Allows the agent to collect the item.
+        Allows the agent to collect the item.
 
         Args:
             agent (Agent): The agent interacting with the collectible.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         agent.collect_item(self.item_type, self.value)
         self.logger.debug(f"Agent '{agent.name}' collected '{self.item_type}' worth {self.value} at {self.position}.")
@@ -264,7 +275,7 @@ class Tool(WorldObject):
         durability (int): The remaining durability of the tool.
     """
 
-    def __init__(self, position: Tuple[int, int], tool_type: str, durability: int):
+    def __init__(self, position: Tuple[int, int], tool_type: str, durability: int, symbol: str = 'T'):
         """
         Initializes the Tool.
 
@@ -272,23 +283,20 @@ class Tool(WorldObject):
             position (Tuple[int, int]): The (x, y) position of the tool.
             tool_type (str): The type of the tool.
             durability (int): The initial durability of the tool.
+            symbol (str): Symbol representing the tool.
         """
-        symbol_map = {
-            'pickaxe': 'P',
-            'axe': 'A',
-            # Add more tool types and their symbols as needed.
-        }
-        symbol = symbol_map.get(tool_type, '?')
         super().__init__(position, symbol=symbol)
         self.tool_type = tool_type
         self.durability = durability
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Allows the agent to pick up the tool.
 
         Args:
             agent (Agent): The agent interacting with the tool.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
         agent.pick_up_tool(self.tool_type, self.durability)
         self.logger.debug(f"Agent '{agent.name}' picked up tool '{self.tool_type}' with durability {self.durability} at {self.position}.")
@@ -309,44 +317,47 @@ class TerrainFeature(WorldObject):
 
     Attributes:
         feature_type (str): The type of terrain feature.
+        movement_cost (int): The movement cost associated with this terrain.
+        impassable (bool): Whether the terrain is impassable.
     """
 
-    def __init__(self, position: Tuple[int, int], feature_type: str):
+    def __init__(self, position: Tuple[int, int], feature_type: str, config: Config):
         """
         Initializes the TerrainFeature.
 
         Args:
             position (Tuple[int, int]): The (x, y) position of the feature.
             feature_type (str): The type of terrain feature.
+            config (Config): Configuration settings.
         """
-        symbol_map = {
-            'water': 'W',
-            'forest': 'F',
-            # Add more feature types and their symbols as needed.
-        }
-        symbol = symbol_map.get(feature_type, '?')
+        terrain_config = next((terrain for terrain in config.environment.grid.terrain.types if terrain.name == feature_type), None)
+        symbol = terrain_config.symbol if terrain_config else '?'
         super().__init__(position, symbol=symbol)
         self.feature_type = feature_type
+        self.movement_cost = terrain_config.movement_cost if terrain_config else 1
+        self.impassable = terrain_config.impassable if terrain_config else False
 
-    def interact(self, agent: 'Agent'):
+    def interact(self, agent: Agent, world: 'World', config: Config):
         """
         Modifies agent's movement or perception based on the terrain.
 
         Args:
             agent (Agent): The agent interacting with the terrain feature.
+            world (World): The simulation world.
+            config (Config): Configuration settings.
         """
-        if self.feature_type == 'water':
-            agent.modify_speed(0.5)  # Agent moves slower in water.
-            self.logger.debug(f"Agent '{agent.name}' speed reduced due to Water at {self.position}.")
-        elif self.feature_type == 'forest':
-            agent.modify_visibility(-1)  # Agent's visibility reduced in forest.
-            self.logger.debug(f"Agent '{agent.name}' visibility reduced due to Forest at {self.position}.")
+        if self.impassable:
+            agent.prevent_movement()
+            self.logger.debug(f"Agent '{agent.name}' cannot pass through {self.feature_type} at {self.position}.")
+        else:
+            agent.adjust_movement_cost(self.movement_cost)
+            self.logger.debug(f"Agent '{agent.name}' movement cost adjusted due to {self.feature_type} at {self.position}.")
 
     def is_impassable(self) -> bool:
         """
-        Terrain features can be impassable depending on their type.
+        Determines if the terrain feature is impassable.
 
         Returns:
             bool: True if the feature is impassable, False otherwise.
         """
-        return self.feature_type in ['mountain', 'water']  # Example impassable terrain types
+        return self.impassable

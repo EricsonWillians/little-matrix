@@ -1,4 +1,4 @@
-# world.py
+# src/environment/world.py
 
 """
 World module for the little-matrix simulation.
@@ -12,11 +12,15 @@ Classes:
 
 import logging
 import random
-from typing import Dict, Tuple, List, Optional, TYPE_CHECKING
-from environment.objects import WorldObject
+from typing import Dict, Tuple, List, Optional, TYPE_CHECKING, Any
+from ..environment.objects import WorldObject, TerrainFeature
+from ..utils.config import Config, TerrainTypeConfig
+import numpy as np
 
 if TYPE_CHECKING:
     from agents.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 class World:
     """
@@ -27,24 +31,63 @@ class World:
         height (int): The height of the world grid.
         agents (Dict[str, Agent]): A dictionary of agents in the world, keyed by their names.
         objects (Dict[Tuple[int, int], List[WorldObject]]): A dictionary mapping positions to lists of objects.
+        terrain (np.ndarray): A 2D array representing the terrain types in the world.
         logger (logging.Logger): Logger for the world.
     """
 
-    def __init__(self, width: int, height: int):
+    def __init__(self, config: Config):
         """
-        Initializes the World instance.
+        Initializes the World instance using configurations.
 
         Args:
-            width (int): The width of the world grid.
-            height (int): The height of the world grid.
+            config (Config): The configuration object loaded from config.yaml.
         """
-        self.width = width
-        self.height = height
+        self.config = config
+        self.width = config.environment.grid.width
+        self.height = config.environment.grid.height
+        self.wrap_around = config.environment.grid.wrap_around
+
         self.agents: Dict[str, 'Agent'] = {}
         self.objects: Dict[Tuple[int, int], List[WorldObject]] = {}
         self.current_time = 0
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"World initialized with size ({self.width}, {self.height})")
+
+        # Initialize terrain
+        self.terrain = np.empty((self.height, self.width), dtype=object)
+        self._initialize_terrain()
+
+    def _initialize_terrain(self):
+        """
+        Initializes the terrain grid based on the configuration.
+        """
+        terrain_types = self.config.environment.grid.terrain.types
+        distribution = self.config.environment.grid.terrain.distribution
+
+        # Create a list of terrain types according to their distribution
+        terrain_list = []
+        for terrain_type in terrain_types:
+            terrain_name = terrain_type.name
+            count = distribution.get(terrain_name, 0)
+            terrain_list.extend([terrain_type] * count)
+
+        # Ensure the terrain_list fills the entire grid
+        total_cells = self.width * self.height
+        if len(terrain_list) < total_cells:
+            default_terrain = next((t for t in terrain_types if t.name == 'default'), terrain_types[0])
+            terrain_list.extend([default_terrain] * (total_cells - len(terrain_list)))
+        elif len(terrain_list) > total_cells:
+            terrain_list = terrain_list[:total_cells]
+
+        random.shuffle(terrain_list)
+
+        # Assign terrain types to grid positions
+        index = 0
+        for y in range(self.height):
+            for x in range(self.width):
+                terrain_type = terrain_list[index]
+                self.terrain[y, x] = TerrainFeature(position=(x, y), feature_type=terrain_type.name, config=self.config)
+                index += 1
 
     def add_agent(self, agent: 'Agent', position: Optional[Tuple[int, int]] = None) -> None:
         """
@@ -119,8 +162,18 @@ class World:
         Returns:
             bool: True if the move was successful, False otherwise.
         """
+        if self.wrap_around:
+            new_position = self._wrap_position(new_position)
+
         if not self.is_position_valid(new_position) or self.is_position_occupied(new_position):
+            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: Invalid or occupied.")
             return False
+
+        terrain_feature = self.terrain[new_position[1], new_position[0]]
+        if terrain_feature.is_impassable():
+            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: Impassable terrain.")
+            return False
+
         old_position = agent.position
         agent.position = new_position
         self.logger.info(f"Agent '{agent.name}' moved from {old_position} to {new_position}")
@@ -137,8 +190,12 @@ class World:
         Returns:
             List[Agent]: A list of agents within the radius.
         """
-        return [agent for agent in self.agents.values() 
-                if self.manhattan_distance(position, agent.position) <= radius]
+        agents_in_radius = []
+        for agent in self.agents.values():
+            distance = self.manhattan_distance(position, agent.position)
+            if distance <= radius:
+                agents_in_radius.append(agent)
+        return agents_in_radius
 
     def get_objects_within_radius(self, position: Tuple[int, int], radius: int) -> List[WorldObject]:
         """
@@ -153,7 +210,8 @@ class World:
         """
         objects_in_radius = []
         for pos, objects in self.objects.items():
-            if self.manhattan_distance(position, pos) <= radius:
+            distance = self.manhattan_distance(position, pos)
+            if distance <= radius:
                 objects_in_radius.extend(objects)
         return objects_in_radius
 
@@ -192,8 +250,17 @@ class World:
         Returns:
             bool: True if the position is occupied, False otherwise.
         """
-        return (any(agent.position == position for agent in self.agents.values()) or
-                any(obj.is_impassable() for obj in self.objects.get(position, [])))
+        if any(agent.position == position for agent in self.agents.values()):
+            return True
+        if any(obj.is_impassable() for obj in self.objects.get(position, [])):
+            return True
+        
+        # Access the 'impassable' attribute directly
+        terrain_feature = self.terrain[position[1], position[0]]
+        if terrain_feature.impassable:
+            return True
+        
+        return False
 
     def get_random_empty_position(self) -> Tuple[int, int]:
         """
@@ -206,10 +273,10 @@ class World:
             ValueError: If no empty positions are available.
         """
         empty_positions = [(x, y) for x in range(self.width) for y in range(self.height)
-                        if not self.is_position_occupied((x, y))]
+                           if not self.is_position_occupied((x, y))]
         if not empty_positions:
             raise ValueError("No empty positions available in the world.")
-        return random.choice(empty_positions)  # Corrected this line
+        return random.choice(empty_positions)
 
     def update(self) -> None:
         """
@@ -217,15 +284,18 @@ class World:
 
         This method handles environmental dynamics, such as object updates, hazards, resource regeneration, etc.
         """
-
         self.current_time += 1
 
+        # Update objects
         for position, objects in list(self.objects.items()):
             for obj in objects[:]:
-                obj.update(self)
+                obj.update(self, self.config)
                 if obj.should_be_removed():
                     self.remove_object(obj)
                     self.logger.info(f"Object '{obj}' at {position} has been removed.")
+
+        # Update terrain if necessary (e.g., weather effects)
+        # Implement terrain updates based on config settings if required
 
     def get_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
@@ -244,11 +314,17 @@ class World:
             (x - 1, y),  # Left
             (x + 1, y),  # Right
         ]
-        return [pos for pos in potential_positions if self.is_position_valid(pos)]
+        adjacent_positions = []
+        for pos in potential_positions:
+            if self.wrap_around:
+                pos = self._wrap_position(pos)
+            if self.is_position_valid(pos):
+                adjacent_positions.append(pos)
+        return adjacent_positions
 
     def get_empty_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
-        Retrieves a list of adjacent positions that are valid and not occupied by agents.
+        Retrieves a list of adjacent positions that are valid and not occupied by agents or impassable terrain.
 
         Args:
             position (Tuple[int, int]): The (x, y) position.
@@ -284,7 +360,29 @@ class World:
         Returns:
             int: The Manhattan distance between the positions.
         """
-        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+        dx = abs(pos1[0] - pos2[0])
+        dy = abs(pos1[1] - pos2[1])
+
+        if self.wrap_around:
+            dx = min(dx, self.width - dx)
+            dy = min(dy, self.height - dy)
+
+        return dx + dy
+
+    def _wrap_position(self, position: Tuple[int, int]) -> Tuple[int, int]:
+        """
+        Wraps the position around the world boundaries if wrap-around is enabled.
+
+        Args:
+            position (Tuple[int, int]): The position to wrap.
+
+        Returns:
+            Tuple[int, int]: The wrapped position.
+        """
+        x, y = position
+        x %= self.width
+        y %= self.height
+        return x, y
 
     def render(self) -> None:
         """
@@ -300,6 +398,12 @@ class World:
             x, y = position
             if objects:
                 grid[y][x] = objects[-1].symbol  # Use the symbol of the topmost object
+        # Add terrain symbols
+        for y in range(self.height):
+            for x in range(self.width):
+                if grid[y][x] == '.':
+                    terrain_feature = self.terrain[y, x]
+                    grid[y][x] = terrain_feature.symbol
         for row in grid:
             print(' '.join(row))
         print('\n')

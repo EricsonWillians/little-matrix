@@ -13,8 +13,9 @@ Classes:
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import random
+from ..utils.config import Config  # Import Config for type hinting if needed
 
 class PromptManager:
     """
@@ -25,9 +26,12 @@ class PromptManager:
         logger (logging.Logger): Logger for the PromptManager.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional[Config] = None):
         """
-        Initializes the PromptManager with default prompts.
+        Initializes the PromptManager with default prompts, optionally using configuration.
+
+        Args:
+            config (Config, optional): Configuration object to customize prompt behavior.
         """
         self.logger = logging.getLogger(__name__)
         self.prompts: Dict[str, str] = {
@@ -125,6 +129,7 @@ class PromptManager:
                 "Provide a vivid description of the event's impact and potential consequences.\n"
             ),
         }
+        self.config = config
         self.logger.info("PromptManager initialized with enhanced prompts.")
 
     def get_prompt(self, prompt_name: str, **kwargs) -> str:

@@ -10,6 +10,7 @@ and update the display in sync with the simulation loop with smooth animations a
 
 import pygame
 import logging
+import time
 from typing import Tuple, Dict, List
 from dataclasses import dataclass, field
 from src.agents.agent import Agent
@@ -101,13 +102,14 @@ class Renderer:
         if self.show_grid:
             self._draw_grid()
 
-        # Draw terrain
+        # Draw terrain first
         self._draw_terrain()
 
-        # Draw static objects first
+        # Draw only WorldObjects (not terrain features)
         for position, objects in self.world.objects.items():
             for obj in objects:
-                self._draw_object(obj)
+                if hasattr(obj, 'position'):  # Only draw if it has a position
+                    self._draw_object(obj)
 
         # Draw agents with animations
         for agent in self.world.agents.values():
@@ -133,24 +135,32 @@ class Renderer:
                              (0, y), (self.width, y), 1)
 
     def _draw_terrain(self):
-        """Render the terrain grid with optimized color selection and tile drawing."""
+        """Render the terrain grid."""
         terrain_colors = self.colors.get('terrain', {})
-        default_color = (139, 69, 19)  # Default to a brown color for undefined terrain types
+        default_color = (139, 69, 19)  # Default brown
 
-        # Precompute rectangle size for tiles to reduce redundant calculations in the loop
         tile_rect = pygame.Rect(0, 0, self.cell_size, self.cell_size)
 
         for y in range(self.world.height):
             for x in range(self.world.width):
                 terrain_feature = self.world.terrain[y, x]
-                # Get color based on terrain type or fall back to default color
-                color = terrain_colors.get(terrain_feature.name, default_color)
+                if hasattr(terrain_feature, 'feature_type'):
+                    color = terrain_colors.get(terrain_feature.feature_type, default_color)
+                else:
+                    color = default_color
 
-                # Adjust tile position without creating a new Rect each time
                 tile_rect.topleft = (x * self.cell_size, y * self.cell_size)
-
-                # Draw the terrain tile
                 pygame.draw.rect(self.buffer, color, tile_rect)
+
+                # Draw terrain symbol if it has one
+                if hasattr(terrain_feature, 'symbol'):
+                    text_surface = self.font.render(
+                        terrain_feature.symbol,
+                        True,
+                        self.colors['text']
+                    )
+                    text_rect = text_surface.get_rect(center=tile_rect.center)
+                    self.buffer.blit(text_surface, text_rect)
 
     def _handle_agent_animation(self, agent: Agent):
         """Update animation state for smooth agent movement."""
@@ -226,6 +236,9 @@ class Renderer:
 
     def _draw_object(self, obj: WorldObject):
         """Draw a world object."""
+        if not hasattr(obj, 'position'):
+            return
+
         x, y = obj.position
         rect = pygame.Rect(
             x * self.cell_size,
@@ -234,13 +247,18 @@ class Renderer:
             self.cell_size
         )
 
-        object_type = type(obj).__name__
-        color = self.colors.get(object_type.lower(), self.colors['resource'])
+        # Get object color
+        if hasattr(obj, 'type') and obj.type in ['food', '*']:
+            color = (255, 215, 0)  # Gold for food
+        elif hasattr(obj, 'type') and obj.type in ['water', '~']:
+            color = (0, 191, 255)  # Deep sky blue for water
+        else:
+            color = self.colors.get('resource', (0, 255, 0))  # Default green
 
         pygame.draw.rect(self.buffer, color, rect)
 
         # Draw object symbol
-        symbol = getattr(obj, 'symbol', object_type[0])
+        symbol = getattr(obj, 'symbol', '*')
         text_surface = self.font.render(symbol, True, self.colors['text'])
         text_rect = text_surface.get_rect(center=rect.center)
         self.buffer.blit(text_surface, text_rect)

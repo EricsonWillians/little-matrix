@@ -9,7 +9,7 @@ Each object interacts differently with agents and the environment, contributing 
 
 Classes:
     WorldObject: Abstract base class for all objects in the simulation world.
-    Obstacle: Represents an impassable obstacle within the simulation world.
+    Obstacle: Represents an is_impassable obstacle within the simulation world.
     Resource: Represents a collectible resource within the simulation world.
     Hazard: Represents a hazardous area that can harm agents.
     Collectible: Represents items that agents can collect.
@@ -84,17 +84,17 @@ class WorldObject(ABC):
 
     def is_impassable(self) -> bool:
         """
-        Determines whether the object is impassable (blocks agent movement).
+        Determines whether the object is is_impassable (blocks agent movement).
 
         Returns:
-            bool: True if the object is impassable, False otherwise.
+            bool: True if the object is is_impassable, False otherwise.
         """
         return False  # Default to passable
 
 
 class Obstacle(WorldObject):
     """
-    Represents an impassable obstacle within the simulation world.
+    Represents an is_impassable obstacle within the simulation world.
 
     Obstacles prevent agents from moving into their position.
     """
@@ -122,7 +122,7 @@ class Obstacle(WorldObject):
 
     def is_impassable(self) -> bool:
         """
-        Obstacles are always impassable.
+        Obstacles are always is_impassable.
 
         Returns:
             bool: True, as obstacles block movement.
@@ -318,7 +318,7 @@ class TerrainFeature(WorldObject):
     Attributes:
         feature_type (str): The type of terrain feature.
         movement_cost (int): The movement cost associated with this terrain.
-        impassable (bool): Whether the terrain is impassable.
+        is_impassable (bool): Whether the terrain is is_impassable.
     """
 
     def __init__(self, position: Tuple[int, int], feature_type: str, config: Config):
@@ -335,7 +335,7 @@ class TerrainFeature(WorldObject):
         super().__init__(position, symbol=symbol)
         self.feature_type = feature_type
         self.movement_cost = terrain_config.movement_cost if terrain_config else 1
-        self.impassable = terrain_config.impassable if terrain_config else False
+        self.is_impassable = terrain_config.is_impassable if terrain_config else False
 
     def interact(self, agent: Agent, world: 'World', config: Config):
         """
@@ -346,7 +346,7 @@ class TerrainFeature(WorldObject):
             world (World): The simulation world.
             config (Config): Configuration settings.
         """
-        if self.impassable:
+        if self.is_impassable:
             agent.prevent_movement()
             self.logger.debug(f"Agent '{agent.name}' cannot pass through {self.feature_type} at {self.position}.")
         else:
@@ -355,9 +355,9 @@ class TerrainFeature(WorldObject):
 
     def is_impassable(self) -> bool:
         """
-        Determines if the terrain feature is impassable.
+        Determines if the terrain feature is is_impassable.
 
         Returns:
-            bool: True if the feature is impassable, False otherwise.
+            bool: True if the feature is is_impassable, False otherwise.
         """
-        return self.impassable
+        return self.is_impassable

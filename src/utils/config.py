@@ -37,7 +37,8 @@ class TerrainTypeConfig:
     name: str
     symbol: str
     movement_cost: int
-    impassable: bool = False
+    feature_type: str
+    is_impassable: bool = False
     color: List[int] = field(default_factory=list)
 
 @dataclass

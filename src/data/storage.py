@@ -18,6 +18,7 @@ import json
 from typing import Dict, Any, List, Optional, Tuple
 from contextlib import contextmanager
 from ..utils.config import Config
+from ..agents.behaviors import AgentTypeBehaviorTraits
 
 class StorageManager:
     """
@@ -106,26 +107,58 @@ class StorageManager:
 
 
     def save_agent_state(self, agent) -> None:
-        """
-        Saves or updates the state of an agent in the database.
-
-        Args:
-            agent (Agent): The agent whose state is to be saved.
-
-        Returns:
-            None
-        """
+        """Save or update agent state with proper serialization."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                # Serialize state and knowledge_base to JSON strings
-                state_str = json.dumps(agent.state)
-                knowledge_base_str = json.dumps(agent.knowledge_base)
-                behavior_traits_str = json.dumps(agent.behavior_traits)
+                
+                # Serialize agent data safely
+                state_data = {
+                    'health': agent.state['health'],
+                    'energy': agent.state['energy'],
+                    'hunger': agent.state['hunger'],
+                    'thirst': agent.state['thirst'],
+                    'mood': agent.state['mood'],
+                    'experience': agent.state['experience'],
+                    'level': agent.state['level'],
+                    'action': agent.state['action'],
+                    'action_details': agent.state['action_details'],
+                    'perceived_agents': agent.state.get('perceived_agents', []),
+                    'perceived_objects': agent.state.get('perceived_objects', []),
+                    'last_message': agent.state.get('last_message', ''),
+                    'strategy_cooldown': agent.state.get('strategy_cooldown', 0),
+                }
+                
+                # Serialize behavior traits
+                behavior_traits = {
+                    'gathering_efficiency': getattr(agent.behavior_traits, 'gathering_efficiency', 1.0),
+                    'combat_skill': getattr(agent.behavior_traits, 'combat_skill', 1.0),
+                    'speed_modifier': getattr(agent.behavior_traits, 'speed_modifier', 1.0),
+                    'recovery_rate': getattr(agent.behavior_traits, 'recovery_rate', 1.0),
+                    'intelligence': getattr(agent.behavior_traits, 'intelligence', 1.0),
+                    'risk_tolerance': getattr(agent.behavior_traits, 'risk_tolerance', 0.5),
+                    'protective_instinct': getattr(agent.behavior_traits, 'protective_instinct', False),
+                    'storage_capacity': getattr(agent.behavior_traits, 'storage_capacity', 1.0),
+                    'perception_modifier': getattr(agent.behavior_traits, 'perception_modifier', 0.0)
+                }
+
+                # Convert everything to JSON-safe format
+                serialized_data = {
+                    'state': state_data,
+                    'knowledge_base': agent.knowledge_base,
+                    'inventory': agent.inventory,
+                    'skills': agent.skills,
+                    'goals': agent.goals,
+                    'relationships': {str(k): float(v) for k, v in agent.relationships.items()},
+                    'status_effects': agent.status_effects,
+                    'agent_type': agent.agent_type.name if hasattr(agent.agent_type, 'name') else str(agent.agent_type),
+                    'behavior_traits': behavior_traits
+                }
 
                 # Check if agent exists
                 cursor.execute("SELECT id FROM agents WHERE name = ?", (agent.name,))
                 result = cursor.fetchone()
+                
                 if result:
                     # Update existing agent
                     cursor.execute("""
@@ -138,32 +171,38 @@ class StorageManager:
                             agent_type = ?
                         WHERE name = ?
                     """, (
-                        state_str,
-                        knowledge_base_str,
+                        json.dumps(serialized_data['state']),
+                        json.dumps(serialized_data['knowledge_base']),
                         agent.position[0],
                         agent.position[1],
-                        behavior_traits_str,
-                        agent.agent_type,
+                        json.dumps(serialized_data['behavior_traits']),
+                        serialized_data['agent_type'],
                         agent.name
                     ))
                 else:
                     # Insert new agent
                     cursor.execute("""
-                        INSERT INTO agents (name, state, knowledge_base, position_x, position_y, behavior_traits, agent_type)
+                        INSERT INTO agents (
+                            name, state, knowledge_base, position_x, position_y, 
+                            behavior_traits, agent_type
+                        )
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (
                         agent.name,
-                        state_str,
-                        knowledge_base_str,
+                        json.dumps(serialized_data['state']),
+                        json.dumps(serialized_data['knowledge_base']),
                         agent.position[0],
                         agent.position[1],
-                        behavior_traits_str,
-                        agent.agent_type
+                        json.dumps(serialized_data['behavior_traits']),
+                        serialized_data['agent_type']
                     ))
+                
                 conn.commit()
-                self.logger.debug(f"Agent '{agent.name}' state saved to database.")
+                self.logger.debug(f"Agent '{agent.name}' state saved successfully")
+                
         except Exception as e:
-            self.logger.error(f"Error saving agent '{agent.name}' state: {e}")
+            self.logger.error(f"Error saving agent '{agent.name}' state: {str(e)}")
+            raise
 
     def load_agent_state(self, agent_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -276,18 +315,44 @@ class StorageManager:
         # Implement as needed, possibly saving to a separate table or file.
         pass
 
-    def load_simulation_state(self, timestep: int) -> Tuple[List[Any], Dict[str, Any]]:
-        """
-        Loads the simulation state from a given timestep.
-
-        Args:
-            timestep (int): The timestep to load.
-
-        Returns:
-            Tuple[List[Any], Dict[str, Any]]: A tuple containing the list of agents and world state.
-        """
-        # Implement as needed, possibly reading from a separate table or file.
-        pass
+    def load_agent_state(self, agent_name: str) -> Optional[Dict[str, Any]]:
+        """Load agent state with proper deserialization."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT state, knowledge_base, position_x, position_y, 
+                           behavior_traits, agent_type
+                    FROM agents 
+                    WHERE name = ?
+                """, (agent_name,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    self.logger.warning(f"Agent '{agent_name}' not found in database")
+                    return None
+                    
+                state_str, kb_str, pos_x, pos_y, traits_str, agent_type = result
+                
+                # Deserialize all components
+                state = json.loads(state_str)
+                knowledge_base = json.loads(kb_str)
+                behavior_traits = json.loads(traits_str) if traits_str else {}
+                
+                # Construct behavior traits instance
+                behavior_traits_obj = AgentTypeBehaviorTraits(**behavior_traits)
+                
+                return {
+                    'state': state,
+                    'knowledge_base': knowledge_base,
+                    'position': (pos_x, pos_y),
+                    'behavior_traits': behavior_traits_obj,
+                    'agent_type': agent_type
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error loading agent '{agent_name}' state: {str(e)}")
+            return None
 
     def close(self):
         """

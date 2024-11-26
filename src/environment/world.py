@@ -139,17 +139,24 @@ class World:
 
     def remove_object(self, obj: WorldObject) -> None:
         """
-        Removes an object from the world.
-
+        Removes an object from the world with better logging.
+        
         Args:
-            obj (WorldObject): The object to remove.
+            obj (WorldObject): Object to remove
         """
         position = obj.position
-        if position in self.objects and obj in self.objects[position]:
-            self.objects[position].remove(obj)
-            if not self.objects[position]:
-                del self.objects[position]
-            self.logger.info(f"Object of type '{type(obj).__name__}' removed from position {position}")
+        if position in self.objects:
+            object_list = self.objects[position]
+            if obj in object_list:
+                object_list.remove(obj)
+                if not object_list:
+                    del self.objects[position]
+                self.logger.info(
+                    f"Object of type '{getattr(obj, 'type', type(obj).__name__)}' "
+                    f"removed from position {position}"
+                )
+                return True
+        return False
 
     def move_agent(self, agent: 'Agent', new_position: Tuple[int, int]) -> bool:
         """
@@ -171,7 +178,7 @@ class World:
 
         terrain_feature = self.terrain[new_position[1], new_position[0]]
         if terrain_feature.is_impassable():
-            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: Impassable terrain.")
+            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: is_impassable terrain.")
             return False
 
         old_position = agent.position
@@ -199,33 +206,47 @@ class World:
 
     def get_objects_within_radius(self, position: Tuple[int, int], radius: int) -> List[WorldObject]:
         """
-        Retrieves objects within a certain radius from a position.
-
+        Retrieves objects within a radius, with proper type information.
+        
         Args:
-            position (Tuple[int, int]): The central position.
-            radius (int): The radius within which to search.
-
+            position (Tuple[int, int]): Center position
+            radius (int): Search radius
+            
         Returns:
-            List[WorldObject]: A list of objects within the radius.
+            List[WorldObject]: Objects within radius
         """
         objects_in_radius = []
         for pos, objects in self.objects.items():
-            distance = self.manhattan_distance(position, pos)
-            if distance <= radius:
-                objects_in_radius.extend(objects)
+            if self.manhattan_distance(position, pos) <= radius:
+                for obj in objects:
+                    if hasattr(obj, 'type'):
+                        objects_in_radius.append(obj)
+                    else:
+                        # Add type information if missing
+                        obj.type = obj.__class__.__name__.lower()
+                        objects_in_radius.append(obj)
         return objects_in_radius
 
     def get_objects_at_position(self, position: Tuple[int, int]) -> List[WorldObject]:
         """
-        Retrieves the list of objects at a given position.
-
+        Retrieves all objects at a specific position, including terrain features.
+        
         Args:
-            position (Tuple[int, int]): The (x, y) position.
-
+            position (Tuple[int, int]): Position to check
+            
         Returns:
-            List[WorldObject]: The list of objects at the position.
+            List[WorldObject]: List of objects at the position
         """
-        return self.objects.get(position, [])
+        # Get regular objects
+        objects = self.objects.get(position, [])
+        
+        # Get terrain at position if within bounds
+        if 0 <= position[1] < self.height and 0 <= position[0] < self.width:
+            terrain = self.terrain[position[1], position[0]]
+            if terrain:
+                objects.append(terrain)
+                
+        return objects
 
     def is_position_valid(self, position: Tuple[int, int]) -> bool:
         """
@@ -242,7 +263,7 @@ class World:
 
     def is_position_occupied(self, position: Tuple[int, int]) -> bool:
         """
-        Checks if a position is occupied by an agent or an impassable object.
+        Checks if a position is occupied by an agent or an is_impassable object.
 
         Args:
             position (Tuple[int, int]): The (x, y) position to check.
@@ -252,15 +273,31 @@ class World:
         """
         if any(agent.position == position for agent in self.agents.values()):
             return True
-        if any(obj.is_impassable() for obj in self.objects.get(position, [])):
+        if any(obj.is_impassable for obj in self.objects.get(position, [])):
             return True
         
-        # Access the 'impassable' attribute directly
+        # Access the 'is_impassable' attribute directly
         terrain_feature = self.terrain[position[1], position[0]]
-        if terrain_feature.impassable:
+        if terrain_feature.is_impassable:
             return True
         
         return False
+
+    def is_resource_present(self, position: Tuple[int, int]) -> bool:
+        """
+        Check if a resource exists at the given position.
+        
+        Args:
+            position (Tuple[int, int]): Position to check
+            
+        Returns:
+            bool: True if resource present
+        """
+        objects = self.get_objects_at_position(position)
+        return any(
+            getattr(obj, 'type', obj.__class__.__name__.lower()) in ['food', 'water', '*', '~']
+            for obj in objects
+        )
 
     def get_random_empty_position(self) -> Tuple[int, int]:
         """
@@ -282,20 +319,74 @@ class World:
         """
         Updates the state of the world.
 
-        This method handles environmental dynamics, such as object updates, hazards, resource regeneration, etc.
+        This method handles environmental dynamics, such as object updates, hazards, 
+        resource regeneration, etc.
         """
         self.current_time += 1
 
-        # Update objects
+        # Update only WorldObjects, not terrain
         for position, objects in list(self.objects.items()):
             for obj in objects[:]:
-                obj.update(self, self.config)
-                if obj.should_be_removed():
-                    self.remove_object(obj)
-                    self.logger.info(f"Object '{obj}' at {position} has been removed.")
+                if hasattr(obj, 'update'):  # Only update if object has update method
+                    obj.update(self, self.config)
+                    if hasattr(obj, 'should_be_removed') and obj.should_be_removed():
+                        self.remove_object(obj)
+                        self.logger.info(f"Object '{obj}' at {position} has been removed.")
 
-        # Update terrain if necessary (e.g., weather effects)
-        # Implement terrain updates based on config settings if required
+        # Handle resource regeneration if configured
+        if hasattr(self.config.environment, 'resource'):
+            resource_config = self.config.environment.resource
+            if hasattr(resource_config, 'spawn_rate') and random.random() < resource_config.spawn_rate:
+                self._spawn_new_resource()
+
+    def _spawn_new_resource(self) -> None:
+        """Spawn new resources in the world based on configuration."""
+        if not hasattr(self.config.environment, 'resource'):
+            return
+            
+        resource_config = self.config.environment.resource
+        
+        # Check if under resource limit
+        current_resources = sum(
+            1 for objects in self.objects.values()
+            for obj in objects
+            if hasattr(obj, 'type') and obj.type in ['food', 'water']
+        )
+        
+        if current_resources >= resource_config.max_resources:
+            return
+            
+        # Get random resource type
+        if hasattr(resource_config, 'types'):
+            resource_type = random.choice(resource_config.types)
+            
+            # Find valid spawn position
+            valid_positions = []
+            for y in range(self.height):
+                for x in range(self.width):
+                    pos = (x, y)
+                    if (not self.is_position_occupied(pos) and
+                        self.terrain[y, x].feature_type in resource_type.spawn_on):
+                        valid_positions.append(pos)
+            
+            if valid_positions:
+                spawn_pos = random.choice(valid_positions)
+                quantity = random.randint(
+                    resource_type.quantity_range[0],
+                    resource_type.quantity_range[1]
+                )
+                
+                new_resource = WorldObject(
+                    position=spawn_pos,
+                    object_type=resource_type.name,
+                    config=self.config,
+                    quantity=quantity
+                )
+                
+                self.add_object(new_resource)
+                self.logger.info(
+                    f"Spawned {resource_type.name} resource at {spawn_pos}"
+                )
 
     def get_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
@@ -324,7 +415,7 @@ class World:
 
     def get_empty_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
-        Retrieves a list of adjacent positions that are valid and not occupied by agents or impassable terrain.
+        Retrieves a list of adjacent positions that are valid and not occupied by agents or is_impassable terrain.
 
         Args:
             position (Tuple[int, int]): The (x, y) position.

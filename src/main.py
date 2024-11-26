@@ -16,6 +16,7 @@ import argparse
 import logging
 import sys
 import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import random
 from typing import List, Optional
 from src.agents.agent import Agent

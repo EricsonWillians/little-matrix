@@ -7,35 +7,39 @@ simulation:
   name: "Little Matrix Ultimate Simulation"          # Simulation name
   description: "An expansive, highly configurable world where agents interact, evolve, and explore using advanced AI-driven behaviors and environmental dynamics."
   render: true                                       # Enable Pygame rendering for visuals
-  timesteps: 1000                                    # Default number of steps per simulation run
+  timesteps: 10000                                    # Default number of steps per simulation run
   save_state_interval: 50                            # Interval at which the simulation state is saved
   seed: 42                                           # Random seed for reproducibility
 
 # Environment Settings
 environment:
   grid:
-    width: 200                                       # Width of the simulation grid (much larger world)
-    height: 200                                      # Height of the simulation grid (much larger world)
+    width: 32                                       # Width of the simulation grid (much larger world)
+    height: 32                                      # Height of the simulation grid (much larger world)
     wrap_around: true                                # Whether the grid wraps around edges (toroidal)
     terrain:
       types:
         - name: "Plains"
           symbol: "."
           movement_cost: 1
+          feature_type: "meadow"
           color: [34, 139, 34]
         - name: "Forest"
           symbol: "F"
           movement_cost: 2
+          feature_type: "dense_foliage"
           color: [0, 100, 0]
         - name: "Mountain"
           symbol: "^"
           movement_cost: 3
-          impassable: false
+          is_impassable: false
+          feature_type: "cliff"
           color: [139, 137, 137]
         - name: "Water"
           symbol: "~"
           movement_cost: 9999
-          impassable: true
+          is_impassable: true
+          feature_type: "ocean"
           color: [28, 107, 160]
       distribution:
         Plains: 50                                   # Percentage of grid cells
@@ -43,7 +47,7 @@ environment:
         Mountain: 15
         Water: 5
   resource:
-    spawn_rate: 0.02                                 # Probability of resources spawning
+    spawn_rate: 0.08                                 # Probability of resources spawning
     max_resources: 500                               # Increased resource cap for larger environment
     regeneration_rate: 0.01                         # Slower regeneration to simulate scarcity
     types:
@@ -113,14 +117,14 @@ environment:
         Stormy: 0.1
 
 llm:
-  api_key: "YOUR_API_KEY_HERE"
+  api_key: "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"
   model: "microsoft/Phi-3-mini-4k-instruct"
 
 # Agent Settings
 agents:
-  count: 10                                         # Increased number of agents for a much bigger world
+  count: 8                                         # Increased number of agents for a much bigger world
   perception:
-    base_radius: 6                                   # Base perception radius
+    base_radius: 12                                   # Base perception radius
     modifiers:
       'Explorer': 2                                  # Explorers have increased perception
       'Defender': -1                                 # Defenders have decreased perception

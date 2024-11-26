@@ -117,7 +117,7 @@ environment:
         Stormy: 0.1
 
 llm:
-  api_key: "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"
+  api_key: "NO_KEY"
   model: "microsoft/Phi-3-mini-4k-instruct"
 
 # Agent Settings

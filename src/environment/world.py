@@ -12,9 +12,9 @@ Classes:
 
 import logging
 import random
-from typing import Dict, Tuple, List, Optional, TYPE_CHECKING, Any
+from typing import Dict, Tuple, List, Optional, TYPE_CHECKING, Self
 from ..environment.objects import WorldObject, TerrainFeature
-from ..utils.config import Config, TerrainTypeConfig
+from ..utils.config import Config
 import numpy as np
 
 if TYPE_CHECKING:
@@ -100,16 +100,34 @@ class World:
 
         Raises:
             ValueError: If the position is occupied or invalid.
+            KeyError: If an agent with the same name already exists.
         """
+        if agent.name in self.agents:
+            error_msg = f"Failed to add agent '{agent.name}': An agent with this name already exists."
+            self.logger.error(error_msg)
+            raise KeyError(error_msg)
+
         if position is None:
             position = self.get_random_empty_position()
+            self.logger.debug(
+                f"No position provided for agent '{agent.name}'. Assigned random position {position}."
+            )
+
         if not self.is_position_valid(position):
-            raise ValueError(f"Invalid position {position} for agent '{agent.name}'")
+            error_msg = f"Failed to add agent '{agent.name}': Position {position} is invalid."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
         if self.is_position_occupied(position):
-            raise ValueError(f"Position {position} is already occupied.")
+            error_msg = f"Failed to add agent '{agent.name}': Position {position} is already occupied."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
         agent.position = position
         self.agents[agent.name] = agent
-        self.logger.info(f"Agent '{agent.name}' added at position {position}")
+        self.logger.info(
+            f"Agent '{agent.name}' successfully added at position {position}."
+        )
 
     def remove_agent(self, agent: 'Agent') -> None:
         """
@@ -117,10 +135,20 @@ class World:
 
         Args:
             agent (Agent): The agent to remove.
+
+        Raises:
+            KeyError: If the agent is not found in the world.
         """
-        if agent.name in self.agents:
-            del self.agents[agent.name]
-            self.logger.info(f"Agent '{agent.name}' removed from the world.")
+        if agent.name not in self.agents:
+            error_msg = f"Failed to remove agent '{agent.name}': Agent not found in the world."
+            self.logger.error(error_msg)
+            raise KeyError(error_msg)
+
+        removed_position = self.agents[agent.name].position
+        del self.agents[agent.name]
+        self.logger.info(
+            f"Agent '{agent.name}' successfully removed from position {removed_position}."
+        )
 
     def add_object(self, obj: WorldObject) -> None:
         """
@@ -137,12 +165,15 @@ class World:
         self.objects.setdefault(obj.position, []).append(obj)
         self.logger.info(f"Object of type '{type(obj).__name__}' added at position {obj.position}")
 
-    def remove_object(self, obj: WorldObject) -> None:
+    def remove_object(self, obj: WorldObject) -> bool:
         """
-        Removes an object from the world with better logging.
-        
+        Removes an object from the world.
+
         Args:
-            obj (WorldObject): Object to remove
+            obj (WorldObject): The object to remove.
+
+        Returns:
+            bool: True if the object was removed, False otherwise.
         """
         position = obj.position
         if position in self.objects:
@@ -177,14 +208,48 @@ class World:
             return False
 
         terrain_feature = self.terrain[new_position[1], new_position[0]]
-        if terrain_feature.is_impassable():
-            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: is_impassable terrain.")
+        if terrain_feature.is_impassable:
+            self.logger.debug(f"Agent '{agent.name}' cannot move to {new_position}: Impassable terrain.")
             return False
 
         old_position = agent.position
         agent.position = new_position
         self.logger.info(f"Agent '{agent.name}' moved from {old_position} to {new_position}")
         return True
+
+    def is_position_valid(self, position: Tuple[int, int]) -> bool:
+        """
+        Checks if a position is within the bounds of the world.
+
+        Args:
+            position (Tuple[int, int]): The (x, y) position to check.
+
+        Returns:
+            bool: True if the position is valid, False otherwise.
+        """
+        x, y = position
+        return 0 <= x < self.width and 0 <= y < self.height
+
+    def is_position_occupied(self, position: Tuple[int, int]) -> bool:
+        """
+        Checks if a position is occupied by an agent or an impassable object.
+
+        Args:
+            position (Tuple[int, int]): The (x, y) position to check.
+
+        Returns:
+            bool: True if the position is occupied, False otherwise.
+        """
+        if any(agent.position == position for agent in self.agents.values()):
+            return True
+        if any(obj.is_impassable for obj in self.objects.get(position, [])):
+            return True
+
+        terrain_feature = self.terrain[position[1], position[0]]
+        if terrain_feature.is_impassable:
+            return True
+
+        return False
 
     def get_agents_within_radius(self, position: Tuple[int, int], radius: int) -> List['Agent']:
         """
@@ -206,98 +271,91 @@ class World:
 
     def get_objects_within_radius(self, position: Tuple[int, int], radius: int) -> List[WorldObject]:
         """
-        Retrieves objects within a radius, with proper type information.
-        
+        Retrieves objects within a radius.
+
         Args:
-            position (Tuple[int, int]): Center position
-            radius (int): Search radius
-            
+            position (Tuple[int, int]): The center position.
+            radius (int): The search radius.
+
         Returns:
-            List[WorldObject]: Objects within radius
+            List[WorldObject]: Objects within the radius.
         """
         objects_in_radius = []
         for pos, objects in self.objects.items():
             if self.manhattan_distance(position, pos) <= radius:
-                for obj in objects:
-                    if hasattr(obj, 'type'):
-                        objects_in_radius.append(obj)
-                    else:
-                        # Add type information if missing
-                        obj.type = obj.__class__.__name__.lower()
-                        objects_in_radius.append(obj)
+                objects_in_radius.extend(objects)
         return objects_in_radius
 
     def get_objects_at_position(self, position: Tuple[int, int]) -> List[WorldObject]:
         """
         Retrieves all objects at a specific position, including terrain features.
-        
+
         Args:
-            position (Tuple[int, int]): Position to check
-            
+            position (Tuple[int, int]): Position to check.
+
         Returns:
-            List[WorldObject]: List of objects at the position
+            List[WorldObject]: List of objects at the position.
         """
         # Get regular objects
-        objects = self.objects.get(position, [])
-        
+        objects = self.objects.get(position, []).copy()
+
         # Get terrain at position if within bounds
         if 0 <= position[1] < self.height and 0 <= position[0] < self.width:
             terrain = self.terrain[position[1], position[0]]
             if terrain:
                 objects.append(terrain)
-                
+
         return objects
 
-    def is_position_valid(self, position: Tuple[int, int]) -> bool:
+    def manhattan_distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> int:
         """
-        Checks if a position is within the bounds of the world.
+        Calculates the Manhattan distance between two positions.
 
         Args:
-            position (Tuple[int, int]): The (x, y) position to check.
+            pos1 (Tuple[int, int]): The first position.
+            pos2 (Tuple[int, int]): The second position.
 
         Returns:
-            bool: True if the position is valid, False otherwise.
+            int: The Manhattan distance between the positions.
         """
-        x, y = position
-        return 0 <= x < self.width and 0 <= y < self.height
+        dx = abs(pos1[0] - pos2[0])
+        dy = abs(pos1[1] - pos2[1])
 
-    def is_position_occupied(self, position: Tuple[int, int]) -> bool:
-        """
-        Checks if a position is occupied by an agent or an is_impassable object.
+        if self.wrap_around:
+            dx = min(dx, self.width - dx)
+            dy = min(dy, self.height - dy)
 
-        Args:
-            position (Tuple[int, int]): The (x, y) position to check.
-
-        Returns:
-            bool: True if the position is occupied, False otherwise.
-        """
-        if any(agent.position == position for agent in self.agents.values()):
-            return True
-        if any(obj.is_impassable for obj in self.objects.get(position, [])):
-            return True
-        
-        # Access the 'is_impassable' attribute directly
-        terrain_feature = self.terrain[position[1], position[0]]
-        if terrain_feature.is_impassable:
-            return True
-        
-        return False
+        return dx + dy
 
     def is_resource_present(self, position: Tuple[int, int]) -> bool:
         """
-        Check if a resource exists at the given position.
-        
+        Checks if a resource exists at the given position.
+
         Args:
-            position (Tuple[int, int]): Position to check
-            
+            position (Tuple[int, int]): Position to check.
+
         Returns:
-            bool: True if resource present
+            bool: True if resource present.
         """
         objects = self.get_objects_at_position(position)
         return any(
-            getattr(obj, 'type', obj.__class__.__name__.lower()) in ['food', 'water', '*', '~']
+            getattr(obj, 'type', obj.__class__.__name__.lower()) in ['food', 'water']
             for obj in objects
         )
+
+    def get_terrain_cost(self, position: Tuple[int, int]) -> float:
+        """
+        Get the movement cost of the terrain at the given position.
+
+        Args:
+            position: The position as a tuple (x, y).
+
+        Returns:
+            A float representing the terrain cost; default is 1.0.
+        """
+        # If you have different terrain types, adjust the cost accordingly.
+        # For now, return 1.0 for all positions.
+        return 1.0
 
     def get_random_empty_position(self) -> Tuple[int, int]:
         """
@@ -319,7 +377,7 @@ class World:
         """
         Updates the state of the world.
 
-        This method handles environmental dynamics, such as object updates, hazards, 
+        This method handles environmental dynamics, such as object updates, hazards,
         resource regeneration, etc.
         """
         self.current_time += 1
@@ -343,23 +401,23 @@ class World:
         """Spawn new resources in the world based on configuration."""
         if not hasattr(self.config.environment, 'resource'):
             return
-            
+
         resource_config = self.config.environment.resource
-        
+
         # Check if under resource limit
         current_resources = sum(
             1 for objects in self.objects.values()
             for obj in objects
             if hasattr(obj, 'type') and obj.type in ['food', 'water']
         )
-        
+
         if current_resources >= resource_config.max_resources:
             return
-            
+
         # Get random resource type
         if hasattr(resource_config, 'types'):
             resource_type = random.choice(resource_config.types)
-            
+
             # Find valid spawn position
             valid_positions = []
             for y in range(self.height):
@@ -368,21 +426,21 @@ class World:
                     if (not self.is_position_occupied(pos) and
                         self.terrain[y, x].feature_type in resource_type.spawn_on):
                         valid_positions.append(pos)
-            
+
             if valid_positions:
                 spawn_pos = random.choice(valid_positions)
                 quantity = random.randint(
                     resource_type.quantity_range[0],
                     resource_type.quantity_range[1]
                 )
-                
+
                 new_resource = WorldObject(
                     position=spawn_pos,
                     object_type=resource_type.name,
                     config=self.config,
                     quantity=quantity
                 )
-                
+
                 self.add_object(new_resource)
                 self.logger.info(
                     f"Spawned {resource_type.name} resource at {spawn_pos}"
@@ -415,7 +473,7 @@ class World:
 
     def get_empty_adjacent_positions(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
-        Retrieves a list of adjacent positions that are valid and not occupied by agents or is_impassable terrain.
+        Retrieves a list of adjacent positions that are valid and not occupied by agents or impassable terrain.
 
         Args:
             position (Tuple[int, int]): The (x, y) position.
@@ -440,26 +498,6 @@ class World:
                 return agent
         return None
 
-    def manhattan_distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> int:
-        """
-        Calculates the Manhattan distance between two positions.
-
-        Args:
-            pos1 (Tuple[int, int]): The first position.
-            pos2 (Tuple[int, int]): The second position.
-
-        Returns:
-            int: The Manhattan distance between the positions.
-        """
-        dx = abs(pos1[0] - pos2[0])
-        dy = abs(pos1[1] - pos2[1])
-
-        if self.wrap_around:
-            dx = min(dx, self.width - dx)
-            dy = min(dy, self.height - dy)
-
-        return dx + dy
-
     def _wrap_position(self, position: Tuple[int, int]) -> Tuple[int, int]:
         """
         Wraps the position around the world boundaries if wrap-around is enabled.
@@ -474,6 +512,33 @@ class World:
         x %= self.width
         y %= self.height
         return x, y
+
+    def save_world_state(self, world: Self):
+        """Saves the current state of the world."""
+        try:
+            world_data = self._serialize_world(world)
+            # Save `world_data` to a file or database
+            # Here, we'll save it as a JSON file
+            with open('world_state.json', 'w') as f:
+                json.dump(world_data, f)
+            self.logger.info("World state saved successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to save world state: {e}")
+
+    def _serialize_world(self, world: Self) -> dict:
+        """Serializes the world object to a dictionary."""
+        return {
+            'current_time': world.current_time,
+            'objects': self._serialize_objects(world.objects),
+            # Add other world attributes if necessary
+        }
+
+    def _serialize_objects(self, objects) -> dict:
+        """Serializes world objects."""
+        serialized_objects = {}
+        for position, obj_list in objects.items():
+            serialized_objects[str(position)] = [obj.to_dict() for obj in obj_list]
+        return serialized_objects
 
     def render(self) -> None:
         """
@@ -498,3 +563,4 @@ class World:
         for row in grid:
             print(' '.join(row))
         print('\n')
+

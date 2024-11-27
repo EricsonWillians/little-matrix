@@ -30,6 +30,7 @@ class SimulationConfig:
     render: bool
     timesteps: int
     save_state_interval: Optional[int] = None
+    llm_metrics_interval: int = 50
     seed: Optional[int] = None
 
 @dataclass
@@ -195,7 +196,9 @@ class RendererEffectsConfig:
     display_hud: bool
     show_agent_names: bool
     show_health_bars: bool
-
+    enable_antialiasing: bool = False
+    show_grid: bool = False
+    highlight_selected_agent: bool = False
 @dataclass
 class RendererConfig:
     display: RendererDisplayConfig

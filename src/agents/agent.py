@@ -133,7 +133,7 @@ class Agent:
         self._ensure_state_keys()
         
         self.logger.info(
-            f"Agent '{self.name}' of type '{self.agent_type.name}' initialized at {self.position}"
+            f"Agent '{self.name}' of type '{self.agent_type}' initialized at {self.position}"
         )
 
     def _initialize_inventory(self) -> Dict[str, int]:
@@ -145,7 +145,7 @@ class Agent:
         }
         
         # Give starting items based on agent type
-        if self.agent_type.name == 'Gatherer':
+        if self.agent_type == 'Gatherer':
             inventory.update({
                 'food': random.randint(2, 5),
                 'water': random.randint(1, 3)
@@ -203,13 +203,13 @@ class Agent:
                 skills['combat'] *= combat_skill
             
             # Apply type-specific bonuses
-            if self.agent_type.name == 'Explorer':
+            if self.agent_type == 'Explorer':
                 skills['gathering'] *= 1.2
                 skills['social'] *= 1.1
-            elif self.agent_type.name == 'Gatherer':
+            elif self.agent_type == 'Gatherer':
                 skills['gathering'] *= 1.5
                 skills['crafting'] *= 1.2
-            elif self.agent_type.name == 'Defender':
+            elif self.agent_type == 'Defender':
                 skills['combat'] *= 1.5
                 skills['social'] *= 0.9
             
@@ -239,20 +239,20 @@ class Agent:
             'perception_modifier': 0.0
         }
         
-        if self.agent_type.name == 'Gatherer':
+        if self.agent_type == 'Gatherer':
             default_traits.update({
                 'gathering_efficiency': 1.5,
                 'storage_capacity': 2.0,
                 'risk_tolerance': 0.3
             })
-        elif self.agent_type.name == 'Explorer':
+        elif self.agent_type == 'Explorer':
             default_traits.update({
                 'speed_modifier': 1.2,
                 'perception_modifier': 1.0,
                 'risk_tolerance': 0.8,
                 'intelligence': 1.5
             })
-        elif self.agent_type.name == 'Defender':
+        elif self.agent_type == 'Defender':
             default_traits.update({
                 'combat_skill': 1.5,
                 'protective_instinct': True,
@@ -310,7 +310,7 @@ class Agent:
         perception_config: AgentsPerceptionConfig = self.config.agents.perception
         base_radius = perception_config.base_radius
         modifiers = getattr(perception_config, 'modifiers', {})
-        type_modifier = modifiers.get(self.agent_type.name, 0)
+        type_modifier = modifiers.get(self.agent_type, 0)
         
         # Apply trait modifiers if they exist
         trait_modifier = 0
@@ -453,7 +453,7 @@ class Agent:
         
         return {
             'agent_name': self.name,
-            'agent_type': self.agent_type.name,
+            'agent_type': self.agent_type,
             'knowledge_base': self.knowledge_base[-10:],  # Last 10 memories
             'state': survival_status,
             'inventory': self.inventory,
@@ -464,49 +464,103 @@ class Agent:
         }
 
     def decide(self) -> None:
-        """Make a decision based on current state and knowledge."""
+        """Make a decision based on current state using LLM."""
         try:
-            # Check for critical conditions first
-            critical_action = self._check_critical_conditions()
-            if critical_action:
+            if critical_action := self._check_critical_conditions():
                 self.state['action'], self.state['action_details'] = critical_action
                 return
+
+            context = {
+                'agent_name': self.name,
+                'agent_type': self.agent_type,
+                'position': self.position,
+                'state': {
+                    'health': self.state['health'],
+                    'energy': self.state['energy'],
+                    'hunger': self.state['hunger'],
+                    'thirst': self.state['thirst'],
+                    'mood': self.state['mood']
+                },
+                'inventory': self.inventory,
+                'perceived_agents': self.state.get('perceived_agents', []),
+                'perceived_objects': self._analyze_nearby_resources(),
+                'current_strategy': self.current_strategy.value
+            }
+
+            llm_response = self.llm_client.generate_prompted_response(
+                prompt_name='agent_decision',
+                prompt_kwargs=context,
+                max_tokens=150
+            )
+
+            action, details = self._validate_llm_response(llm_response)
             
-            # Prepare context for LLM
-            prompt_vars = self._prepare_decision_context()
-            
-            # Get LLM decision
-            prompt = self.llm_client.prompt_manager.get_prompt('agent_decision', **prompt_vars)
-            response = self.llm_client.generate_response(prompt)
-            
-            # Parse and validate decision
-            action, details = self._parse_llm_response(response)
-            action, details = self._validate_decision(action, details)
-            
-            # Update state with decision
             self.state['action'] = action
             self.state['action_details'] = details
-            
-            self.logger.info(
-                f"{self.name} decided to {action} with details: {details}"
-            )
-            
+            self.logger.info(f"{self.name} decided to {action} with details: {details}")
+
         except Exception as e:
-            self.logger.error(f"Decision-making failed: {str(e)}. Defaulting to survival action.")
+            self.logger.error(f"Decision-making failed: {str(e)}. Using emergency action.")
             self.state['action'], self.state['action_details'] = self._get_emergency_action()
+
+    def _validate_llm_response(self, response: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """Validate and sanitize LLM response."""
+        if not isinstance(response, dict):
+            raise ValueError("Invalid response format")
+
+        action = response.get('action', 'rest')
+        details = response.get('details', {})
+
+        valid_actions = {
+            'move': {'direction'},
+            'collect': {'object_type'},  # Changed from 'resource_type' to 'object_type'
+            'use': {'item_type'},
+            'rest': set(),
+            'seek_resource': {'resource_type'},
+            'craft': {'item_type', 'recipe'},
+            'attack': {'target_agent'}
+        }
+
+
+        if action not in valid_actions:
+            raise ValueError(f"Invalid action: {action}")
+
+        # Validate required parameters
+        required_params = valid_actions[action]
+        if not all(param in details for param in required_params):
+            raise ValueError(f"Missing required parameters for {action}")
+
+        # Sanitize details based on action type
+        sanitized_details = {}
+        if action == 'move':
+            if details.get('direction') in {'north', 'south', 'east', 'west'}:
+                sanitized_details['direction'] = details['direction']
+        elif action in {'collect', 'use', 'seek_resource'}:
+            valid_types = {'food', 'water', 'medical_supplies', 'metal'}
+            if details.get('resource_type') in valid_types or details.get('item_type') in valid_types:
+                sanitized_details = details
+
+        return action, sanitized_details
 
     def _handle_seek_resource(self, world: 'World', resource_type: str = None) -> None:
         """Handle the seek_resource action."""
         if resource_type is None:
-            resource_type = self._determine_most_urgent_resource()
-            
-        target = self._find_nearest_resource_position(world, resource_type)
-        if target:
-            self.target_position = target
-            self.current_strategy = MovementStrategy.SEEK_RESOURCE
-            self._move_towards_target(world)
+            resource_type = self._determine_needed_resource()
+        if resource_type is not None:
+            target = self._find_nearest_resource_position(world, resource_type)
+            if target:
+                self.target_position = target
+                self.current_strategy = MovementStrategy.SEEK_RESOURCE
+                self._move_towards_target(world)
+            else:
+                self.logger.info(f"{self.name} couldn't find {resource_type}, switching to explore.")
+                self.current_strategy = MovementStrategy.EXPLORE
+                self.move(world)
         else:
-            self._random_movement(world)  # Fallback to random movement if no resource found
+            # No urgent resource needed, switch to another strategy
+            self.logger.info(f"{self.name} doesn't need any resource urgently.")
+            self.current_strategy = MovementStrategy.EXPLORE
+            self.move(world)
 
     def act(self, world: 'World') -> None:
         """Execute actions with priority on resource collection."""
@@ -732,6 +786,39 @@ class Agent:
             random.randint(0, self.config.environment.grid.height - 1)
         )
 
+    def _get_direction_to_position(self, target_pos: Tuple[int, int]) -> Optional[str]:
+        """
+        Determine the direction to move from the current position to the target position.
+
+        Args:
+            target_pos: The target position as a tuple (x, y).
+
+        Returns:
+            A string indicating the direction ('north', 'south', 'east', 'west'), or None if already at the target position.
+        """
+        current_x, current_y = self.position
+        target_x, target_y = target_pos
+
+        dx = target_x - current_x
+        dy = target_y - current_y
+
+        # Handle world wrapping if necessary
+        if self.config.environment.grid.wrap_around:
+            width = self.config.environment.grid.width
+            height = self.config.environment.grid.height
+
+            dx = (dx + width) % width - width // 2
+            dy = (dy + height) % height - height // 2
+
+        if dx == 0 and dy == 0:
+            return None  # Already at the target position
+
+        # Determine primary direction to move
+        if abs(dx) > abs(dy):
+            return 'east' if dx > 0 else 'west'
+        else:
+            return 'south' if dy > 0 else 'north'
+
     def _explore_movement(self, world: 'World') -> None:
         """Execute exploration movement strategy."""
         if not self.target_position or self._reached_target():
@@ -746,6 +833,49 @@ class Agent:
         
         if self.target_position:
             self._move_towards_target(world)
+
+    def _reached_target(self) -> bool:
+        """
+        Check if the agent has reached its target position.
+
+        Returns:
+            True if the agent is at the target position, False otherwise.
+        """
+        return self.position == self.target_position
+
+    def _update_movement_memory(self) -> None:
+        """
+        Update the agent's movement memory with the current position.
+        """
+        self.movement_memory.append(self.position)
+        if len(self.movement_memory) > self.movement_memory_size:
+            self.movement_memory.pop(0)
+
+    def _check_stuck_status(self) -> None:
+        """
+        Check if the agent is stuck by analyzing its movement memory.
+        If the agent is stuck, reset its path and choose a new strategy to get unstuck.
+        """
+        if len(self.movement_memory) < self.movement_memory_size:
+            return  # Not enough data to determine if stuck
+
+        # Check if the agent has been in the same position or looping
+        recent_positions = self.movement_memory[-self.movement_memory_size:]
+        unique_positions = set(recent_positions)
+
+        if len(unique_positions) <= 2:
+            self.stuck_counter += 1
+            self.logger.debug(f"{self.name} might be stuck. Stuck counter: {self.stuck_counter}")
+        else:
+            self.stuck_counter = 0  # Reset the counter if the agent is moving
+
+        if self.stuck_counter >= 3:
+            # Agent is considered stuck, reset path and change strategy
+            self.logger.info(f"{self.name} is stuck. Changing strategy to RANDOM to get unstuck.")
+            self.path_to_target = []
+            self.current_strategy = MovementStrategy.RANDOM
+            self.stuck_counter = 0  # Reset the counter
+
 
     def _seek_resource_movement(self, world: 'World') -> None:
         """Move towards needed resources."""
@@ -905,7 +1035,7 @@ class Agent:
                 self.path_to_target = self.path_to_target[1:]
 
     # Resource management methods
-    def _determine_needed_resource(self) -> str:
+    def _determine_needed_resource(self) -> Optional[str]:
         """Determine most critically needed resource."""
         if self.state['hunger'] >= self.CRITICAL_HUNGER:
             return 'food'
@@ -913,7 +1043,7 @@ class Agent:
             return 'water'
         elif self.state['health'] < self.CRITICAL_HEALTH:
             return 'medical_supplies'
-        return 'food'  # Default to food
+        return None  # Return None if no critical need
 
     def _find_nearest_resource_position(self, world: 'World', resource_type: str) -> Optional[Tuple[int, int]]:
         """Find position of nearest needed resource."""
@@ -1322,11 +1452,11 @@ class Agent:
             self.skills[skill] += skill_improvement
         
         # Special trait improvements based on agent type
-        if self.agent_type.name == 'Explorer':
+        if self.agent_type == 'Explorer':
             self.perception_radius += 1
-        elif self.agent_type.name == 'Gatherer':
+        elif self.agent_type == 'Gatherer':
             self.behavior_traits.gathering_efficiency *= 1.1
-        elif self.agent_type.name == 'Defender':
+        elif self.agent_type == 'Defender':
             self.behavior_traits.combat_skill *= 1.1
         
         self.logger.info(
@@ -1387,7 +1517,7 @@ class Agent:
         """Get a summary of agent's current status."""
         return {
             'name': self.name,
-            'type': self.agent_type.name,
+            'type': self.agent_type,
             'level': self.state['level'],
             'health': self.state['health'],
             'energy': self.state['energy'],
@@ -1569,7 +1699,7 @@ class Agent:
             'inventory': self.inventory,
             'skills': self.skills,
             'status_effects': self.status_effects,
-            'agent_type': self.agent_type.name,
+            'agent_type': self.agent_type,
             'behavior_traits': self.behavior_traits.to_dict(),
             'goals': self.goals,
             'relationships': self.relationships,
@@ -1577,7 +1707,7 @@ class Agent:
 
     def __str__(self) -> str:
         """String representation of the agent."""
-        return (f"Agent {self.name} (Level {self.state['level']} {self.agent_type.name}) "
+        return (f"Agent {self.name} (Level {self.state['level']} {self.agent_type}) "
                 f"at {self.position} | Health: {self.state['health']}/100 | "
                 f"Energy: {self.state['energy']}/100 | Mood: {self.state['mood']}")
 

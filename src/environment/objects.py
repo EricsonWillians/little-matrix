@@ -90,6 +90,19 @@ class WorldObject(ABC):
             bool: True if the object is is_impassable, False otherwise.
         """
         return False  # Default to passable
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the object to a dictionary representation for serialization.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the object's attributes
+        """
+        return {
+            'type': self.__class__.__name__,
+            'position': self.position,
+            'symbol': self.symbol
+        }
 
 
 class Obstacle(WorldObject):
@@ -128,6 +141,16 @@ class Obstacle(WorldObject):
             bool: True, as obstacles block movement.
         """
         return True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the obstacle to a dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the obstacle's attributes
+        """
+        base_dict = super().to_dict()
+        return base_dict
 
 
 class Resource(WorldObject):
@@ -178,6 +201,20 @@ class Resource(WorldObject):
         """
         return self.quantity <= 0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the resource to a dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the resource's attributes
+        """
+        base_dict = super().to_dict()
+        base_dict.update({
+            'quantity': self.quantity,
+            'resource_type': self.resource_type
+        })
+        return base_dict
+
 
 class Hazard(WorldObject):
     """
@@ -219,6 +256,19 @@ class Hazard(WorldObject):
             bool: False, as agents can move through hazards (at their own risk).
         """
         return False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the hazard to a dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the hazard's attributes
+        """
+        base_dict = super().to_dict()
+        base_dict.update({
+            'damage': self.damage
+        })
+        return base_dict
 
 
 class Collectible(WorldObject):
@@ -264,6 +314,20 @@ class Collectible(WorldObject):
             bool: True, since collectibles are single-use.
         """
         return True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the tool to a dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the tool's attributes
+        """
+        base_dict = super().to_dict()
+        base_dict.update({
+            'tool_type': self.tool_type,
+            'durability': self.durability
+        })
+        return base_dict
 
 
 class Tool(WorldObject):
@@ -361,3 +425,18 @@ class TerrainFeature(WorldObject):
             bool: True if the feature is is_impassable, False otherwise.
         """
         return self.is_impassable
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the terrain feature to a dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the terrain feature's attributes
+        """
+        base_dict = super().to_dict()
+        base_dict.update({
+            'feature_type': self.feature_type,
+            'movement_cost': self.movement_cost,
+            'is_impassable': self.is_impassable
+        })
+        return base_dict

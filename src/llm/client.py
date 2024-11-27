@@ -1,203 +1,245 @@
-# src/llm/client.py
-
 """
-LLM Client module for the little-matrix simulation.
-
-This module defines the LLMClient class, which manages interactions with the Large Language Model (LLM)
-via the Hugging Face Inference API. It handles prompt construction, response generation, and parsing
-of the LLM's outputs.
-
-Classes:
-    LLMClient: Manages interactions with the LLM.
+LLM client for interacting with Hugging Face endpoints with robust error handling and token management.
 """
 
+import os
+import json
+import time
 import logging
 import re
-from typing import Callable, Dict, Any, Optional
-from threading import Thread
-from huggingface_hub import InferenceApi
-from huggingface_hub.utils import build_hf_headers
+from typing import Dict, Any, Optional, Union
+from datetime import datetime
+
+from huggingface_hub import InferenceClient, InferenceTimeoutError
+from dotenv import load_dotenv
+from transformers import AutoTokenizer
+
 from ..llm.prompts import PromptManager
-from ..utils.config import Config
+
 
 class LLMClient:
     """
-    Manages interactions with the LLM via Hugging Face Inference API.
-
-    Attributes:
-        logger (logging.Logger): Logger for the LLMClient.
-        client (InferenceApi): Hugging Face Inference API Client.
-        model (str): The model identifier from Hugging Face Hub.
-        prompt_manager (PromptManager): Manages prompt templates.
-        config (LLMConfig): Configuration settings for the LLM.
+    LLMClient is responsible for interacting with the Hugging Face Inference API or dedicated endpoints,
+    handling retries, rate limiting, token length management, and error handling to ensure robust communication
+    with the language model.
     """
+    MAX_RETRIES = 3
+    BACKOFF_FACTOR = 1.0
+    MIN_REQUEST_INTERVAL = 0.1
 
-    def __init__(self, config: Config):
-        """
-        Initializes the LLMClient.
-
-        Args:
-            config (Config): The configuration object loaded from config.yaml.
-        """
-        self.logger = logging.getLogger(__name__)
-        self.config = config.llm  # Access LLM-specific configuration
-        self.model = self.config.model
-        self.api_key = self.config.api_key
-
-        if not self.api_key or not self.model:
-            self.logger.error("API key and model must be provided in the configuration.")
-            raise ValueError("API key and model must be provided in the configuration.")
-
-        self.client = InferenceApi(
-            repo_id=self.model,
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self._setup_environment()
+        self.prompt_manager = PromptManager(config)
+        self.client = InferenceClient(
+            model=self.endpoint,
             token=self.api_key,
-            task='text-generation'
+            timeout=self.request_timeout
         )
-        self.client.api_url = f"https://api-inference.huggingface.co/models/{self.model}"
-        
-        # Pass config to PromptManager
-        self.prompt_manager = PromptManager(config=config)
-        self.logger.info(f"LLMClient initialized with model '{self.model}'.")
+        self.last_request_time = 0.0
+        self._initialize_metrics()
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.max_total_tokens = self._get_model_max_tokens()
+        self.logger.info(f"LLMClient initialized with model '{self.model_name}' and max tokens {self.max_total_tokens}.")
 
-    def generate_prompted_response(self, prompt_name: str, prompt_kwargs: Dict[str, Any], max_tokens: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Generates a response from the LLM based on a named prompt template.
+    def _setup_environment(self) -> None:
+        load_dotenv()
+        self.api_key = os.getenv('HUGGINGFACE_API_KEY')
+        self.endpoint = os.getenv('HUGGINGFACE_ENDPOINT')
+        self.model_name = os.getenv('HUGGINGFACE_MODEL', 'gpt2')
+        self.request_timeout = int(os.getenv('HUGGINGFACE_REQUEST_TIMEOUT', '60'))
 
-        Args:
-            prompt_name (str): The name of the prompt template to use.
-            prompt_kwargs (Dict[str, Any]): Variables to format the prompt template.
-            max_tokens (int, optional): The maximum number of tokens in the response.
+        if not self.api_key:
+            self.logger.error("Missing HUGGINGFACE_API_KEY")
+            raise ValueError("Missing HUGGINGFACE_API_KEY")
+        if not self.endpoint:
+            self.logger.error("Missing HUGGINGFACE_ENDPOINT")
+            raise ValueError("Missing HUGGINGFACE_ENDPOINT")
 
-        Returns:
-            Dict[str, Any]: A dictionary containing the processed response and additional details.
-        """
-        # Get prompt text from PromptManager
-        prompt = self.prompt_manager.get_prompt(prompt_name, **prompt_kwargs)
-        return self.generate_response(prompt, max_tokens)
+    def _initialize_metrics(self) -> None:
+        self.metrics = {
+            'total_requests': 0,
+            'successful_requests': 0,
+            'failed_requests': 0,
+            'total_latency': 0.0,
+            'last_success': None,
+        }
 
-    def generate_response(self, prompt: str, max_tokens: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Generates a response from the LLM based on the provided prompt.
+    def _get_model_max_tokens(self) -> int:
+        # Define model-specific max token limits
+        model_max_tokens = {
+            'Qwen/Qwen2.5-7B-Instruct': 8192,
+            # Add other models and their max token limits here
+        }
+        return model_max_tokens.get(self.model_name, 2048)  # Default to 2048 if not specified
 
-        Args:
-            prompt (str): The prompt string to send to the LLM.
-            max_tokens (int, optional): The maximum number of tokens in the response.
+    def generate_response(self, prompt: str, max_tokens: int = 150) -> Dict[str, Any]:
+        self.metrics['total_requests'] += 1
+        start_time = time.time()
 
-        Returns:
-            Dict[str, Any]: A dictionary containing the processed response and additional details.
-        """
-        if max_tokens is None:
-            max_tokens = self.config.max_tokens
+        input_ids = self.tokenizer.encode(prompt, truncation=False)
+        self.logger.debug(f"Prompt length (tokens): {len(input_ids)}")
 
-        self.logger.debug(f"Generating LLM response for prompt: {prompt}")
+        # Ensure total tokens do not exceed model's maximum allowed tokens
+        if len(input_ids) + max_tokens > self.max_total_tokens:
+            max_allowed_input_tokens = self.max_total_tokens - max_tokens
+            if max_allowed_input_tokens <= 0:
+                error_msg = "max_tokens is too high for the model's token limit."
+                self.logger.error(error_msg)
+                return {"action": "rest", "details": {}, "error": error_msg}
+            # Truncate the input_ids from the beginning to fit the max allowed input tokens
+            input_ids = input_ids[-max_allowed_input_tokens:]
+            prompt = self.tokenizer.decode(input_ids, skip_special_tokens=True)
+            self.logger.warning("Prompt truncated to fit model's token limit.")
+
+        payload = {
+            "prompt": prompt,
+            "max_new_tokens": max_tokens,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "do_sample": True,
+        }
 
         try:
-            response = self.client(inputs=prompt, params={
-                "max_new_tokens": max_tokens,
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "do_sample": self.config.do_sample
-            })
-            self.logger.debug(f"Received raw LLM response: {response}")
+            self._enforce_rate_limit()
+            response_text = self._retry_request(payload)
+            result = self._parse_response(response_text)
+            self._update_metrics(success=True, start_time=start_time)
+            return result
 
-            generated_text = self._extract_generated_text(response)
-            action = self._extract_action(generated_text)
-            details = self._extract_details(generated_text)
-
-            return {
-                "action": action,
-                "details": details,
-                "full_response": generated_text
-            }
         except Exception as e:
-            self.logger.error(f"LLM generation failed: {e}")
-            return {"action": "rest", "details": {}, "full_response": ""}
+            self.logger.error(f"Request failed: {e}")
+            self._update_metrics(success=False, start_time=start_time)
+            return {"action": "rest", "details": {}, "error": str(e)}
 
-    def generate_response_async(
+    def _retry_request(self, payload: Dict[str, Any]) -> str:
+        retries = 0
+        while retries < self.MAX_RETRIES:
+            try:
+                response = self.client.text_generation(
+                    prompt=payload["prompt"],
+                    max_new_tokens=payload["max_new_tokens"],
+                    temperature=payload["temperature"],
+                    top_p=payload["top_p"],
+                    do_sample=payload["do_sample"],
+                )
+                if not response:
+                    raise ValueError("Empty response from LLM.")
+                return response
+
+            except (InferenceTimeoutError, ValueError) as e:
+                retries += 1
+                self.logger.warning(f"Request failed: {e}. Retrying {retries}/{self.MAX_RETRIES}...")
+                time.sleep(self.BACKOFF_FACTOR * retries)
+
+            except Exception as e:
+                self.logger.error(f"Unexpected error: {e}")
+                raise
+
+        raise Exception("Max retries exceeded for the request.")
+
+
+    def generate_prompted_response(
         self,
         prompt_name: str,
         prompt_kwargs: Dict[str, Any],
-        callback: Callable[[Dict[str, Any]], None],
-        max_tokens: Optional[int] = None
-    ) -> None:
-        """
-        Generates a response from the LLM asynchronously based on the provided prompt name.
+        max_tokens: int = 150
+    ) -> Dict[str, Any]:
+        try:
+            prompt = self.prompt_manager.get_prompt(prompt_name, **prompt_kwargs)
+            return self.generate_response(prompt, max_tokens)
+        except Exception as e:
+            self.logger.error(f"Failed to generate prompted response: {e}")
+            return {"action": "rest", "details": {}, "error": str(e)}
 
-        Args:
-            prompt_name (str): The prompt template name.
-            prompt_kwargs (Dict[str, Any]): Variables for formatting the prompt.
-            callback (Callable[[Dict[str, Any]], None]): The function to call with the response once it's ready.
-            max_tokens (int, optional): The maximum number of tokens in the response.
+    def _enforce_rate_limit(self) -> None:
+        elapsed = time.time() - self.last_request_time
+        if elapsed < self.MIN_REQUEST_INTERVAL:
+            time.sleep(self.MIN_REQUEST_INTERVAL - elapsed)
+        self.last_request_time = time.time()
 
-        Returns:
-            None
-        """
-        if max_tokens is None:
-            max_tokens = self.config.max_tokens
+    def _update_metrics(self, success: bool, start_time: float) -> None:
+        elapsed_time = time.time() - start_time
+        self.metrics['total_latency'] += elapsed_time
 
-        def run():
-            self.logger.debug(f"Starting async LLM generation for prompt: {prompt_name}")
-            response = self.generate_prompted_response(prompt_name, prompt_kwargs, max_tokens)
-            callback(response)
-
-        thread = Thread(target=run)
-        thread.start()
-
-    def _extract_generated_text(self, response: Any) -> str:
-        """
-        Extracts the generated text from the LLM response.
-
-        Args:
-            response (Any): The raw response from the LLM.
-
-        Returns:
-            str: The extracted generated text.
-        """
-        if isinstance(response, list) and len(response) > 0:
-            first_response = response[0]
-            if isinstance(first_response, dict) and 'generated_text' in first_response:
-                return first_response['generated_text']
-        elif isinstance(response, dict):
-            if 'generated_text' in response:
-                return response['generated_text']
-            elif 'text' in response:
-                return response['text']
-
-        self.logger.error(f"Unexpected response format: {response}")
-        return ""
-
-    def _extract_action(self, text: str) -> str:
-        """
-        Extracts the action from the generated text.
-
-        Args:
-            text (str): The generated text from the LLM.
-
-        Returns:
-            str: The extracted action, or 'rest' if no valid action is found.
-        """
-        action_match = re.search(r"action:\s*'(\w+)'", text)
-        if action_match:
-            return action_match.group(1)
+        if success:
+            self.metrics['successful_requests'] += 1
+            self.metrics['last_success'] = datetime.now()
         else:
-            self.logger.debug("No valid action found in the generated text.")
-            return 'rest'
+            self.metrics['failed_requests'] += 1
 
-    def _extract_details(self, text: str) -> Dict[str, Any]:
+    def _parse_response(self, text: str) -> Dict[str, Any]:
         """
-        Extracts additional details from the generated text.
-
-        Args:
-            text (str): The generated text from the LLM.
+        Parses the generated text from the LLM and extracts action and details.
 
         Returns:
-            Dict[str, Any]: A dictionary of extracted details.
+            Dict[str, Any]: A dictionary containing the action, details, and full response.
         """
-        details = {}
-        # Extract key-value pairs in the format key: 'value'
-        matches = re.findall(r"(\w+):\s*'([^']*)'", text)
-        for key, value in matches:
-            details[key] = value
+        self.logger.debug(f"Raw LLM response: {repr(text)}")
+        try:
+            # Extract JSON object using a stack-based approach
+            import json
+            start_idx = text.find('{')
+            if start_idx == -1:
+                self.logger.error("No '{' found in LLM response.")
+                raise ValueError("No '{' found in LLM response.")
 
-        self.logger.debug(f"Extracted details: {details}")
-        return details
+            brace_count = 0
+            in_string = False
+            for idx in range(start_idx, len(text)):
+                char = text[idx]
+                if char == '"' and text[idx - 1] != '\\':
+                    in_string = not in_string
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # We found the matching closing brace
+                            json_str = text[start_idx:idx+1]
+                            self.logger.debug(f"Extracted JSON string: {json_str}")
+                            response = json.loads(json_str)
+                            action = response.get('action', 'rest')
+                            details = response.get('details', {})
+                            return {
+                                "action": action,
+                                "details": details,
+                                "full_response": text
+                            }
+            # If we reach here, no complete JSON object was found
+            self.logger.error("No complete JSON object found in LLM response.")
+            return {
+                "action": "rest",
+                "details": {},
+                "full_response": text,
+                "error": "No complete JSON object found in LLM response."
+            }
+        except Exception as e:
+            self.logger.error(f"Error parsing response text: {e}")
+            # Return default action with the raw response
+            return {
+                "action": "rest",
+                "details": {},
+                "full_response": text,
+                "error": str(e)
+            }
+
+
+    def get_metrics(self) -> Dict[str, Union[int, float, str]]:
+        """Return current performance metrics."""
+        successful_requests = self.metrics['successful_requests']
+        total_requests = self.metrics['total_requests']
+        avg_latency = (
+            self.metrics['total_latency'] / successful_requests
+            if successful_requests > 0 else 0.0
+        )
+        success_rate = (
+            successful_requests / total_requests
+            if total_requests > 0 else 0.0
+        )
+        return {
+            **self.metrics,
+            'average_latency': avg_latency,
+            'success_rate': success_rate
+        }

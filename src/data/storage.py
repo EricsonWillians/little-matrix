@@ -15,7 +15,7 @@ import sqlite3
 import threading
 import logging
 import json
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Self
 from contextlib import contextmanager
 from ..utils.config import Config
 from ..agents.behaviors import AgentTypeBehaviorTraits
@@ -205,41 +205,42 @@ class StorageManager:
             raise
 
     def load_agent_state(self, agent_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Loads the state of an agent from the database.
-
-        Args:
-            agent_name (str): The name of the agent.
-
-        Returns:
-            Optional[Dict[str, Any]]: A dictionary containing the agent's data, or None if not found.
-        """
+        """Load agent state with proper deserialization."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT state, knowledge_base, position_x, position_y, behavior_traits, agent_type
-                    FROM agents WHERE name = ?
+                    SELECT state, knowledge_base, position_x, position_y, 
+                           behavior_traits, agent_type
+                    FROM agents 
+                    WHERE name = ?
                 """, (agent_name,))
+                
                 result = cursor.fetchone()
-                if result:
-                    state_str, knowledge_base_str, position_x, position_y, behavior_traits_str, agent_type = result
-                    state = json.loads(state_str)
-                    knowledge_base = json.loads(knowledge_base_str)
-                    position = (position_x, position_y)
-                    behavior_traits = json.loads(behavior_traits_str) if behavior_traits_str else {}
-                    return {
-                        'state': state,
-                        'knowledge_base': knowledge_base,
-                        'position': position,
-                        'behavior_traits': behavior_traits,
-                        'agent_type': agent_type
-                    }
-                else:
-                    self.logger.warning(f"Agent '{agent_name}' not found in database.")
+                if not result:
+                    self.logger.warning(f"Agent '{agent_name}' not found in database")
                     return None
+                    
+                state_str, kb_str, pos_x, pos_y, traits_str, agent_type = result
+                
+                # Deserialize all components
+                state = json.loads(state_str)
+                knowledge_base = json.loads(kb_str)
+                behavior_traits = json.loads(traits_str) if traits_str else {}
+                
+                # Construct behavior traits instance
+                behavior_traits_obj = AgentTypeBehaviorTraits(**behavior_traits)
+                
+                return {
+                    'state': state,
+                    'knowledge_base': knowledge_base,
+                    'position': (pos_x, pos_y),
+                    'behavior_traits': behavior_traits_obj,
+                    'agent_type': agent_type
+                }
+                
         except Exception as e:
-            self.logger.error(f"Error loading agent '{agent_name}' state: {e}")
+            self.logger.error(f"Error loading agent '{agent_name}' state: {str(e)}")
             return None
 
     def save_interaction(self, sender_name: str, recipient_name: str, message: str) -> None:
@@ -315,44 +316,53 @@ class StorageManager:
         # Implement as needed, possibly saving to a separate table or file.
         pass
 
-    def load_agent_state(self, agent_name: str) -> Optional[Dict[str, Any]]:
-        """Load agent state with proper deserialization."""
+    def delete_agent_state(self, agent_name: str) -> None:
+        """
+        Deletes the agent's state from the database.
+
+        Args:
+            agent_name (str): The name of the agent to delete.
+
+        Returns:
+            None
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT state, knowledge_base, position_x, position_y, 
-                           behavior_traits, agent_type
-                    FROM agents 
-                    WHERE name = ?
-                """, (agent_name,))
-                
-                result = cursor.fetchone()
-                if not result:
-                    self.logger.warning(f"Agent '{agent_name}' not found in database")
-                    return None
-                    
-                state_str, kb_str, pos_x, pos_y, traits_str, agent_type = result
-                
-                # Deserialize all components
-                state = json.loads(state_str)
-                knowledge_base = json.loads(kb_str)
-                behavior_traits = json.loads(traits_str) if traits_str else {}
-                
-                # Construct behavior traits instance
-                behavior_traits_obj = AgentTypeBehaviorTraits(**behavior_traits)
-                
-                return {
-                    'state': state,
-                    'knowledge_base': knowledge_base,
-                    'position': (pos_x, pos_y),
-                    'behavior_traits': behavior_traits_obj,
-                    'agent_type': agent_type
-                }
-                
+                cursor.execute("DELETE FROM agents WHERE name = ?", (agent_name,))
+                conn.commit()
+                self.logger.info(f"Agent '{agent_name}' state deleted from the database.")
         except Exception as e:
-            self.logger.error(f"Error loading agent '{agent_name}' state: {str(e)}")
-            return None
+            self.logger.error(f"Error deleting agent '{agent_name}' state: {e}")
+
+    def save_world_state(self, agents: list, world: Self):
+        """Saves the entire simulation state, including the world and agents."""
+        try:
+            simulation_state = {
+                'world': self._serialize_world(world),
+                'agents': [agent.to_dict() for agent in agents],
+            }
+            with open('simulation_state.json', 'w') as f:
+                json.dump(simulation_state, f)
+            self.logger.info("Simulation state saved successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to save simulation state: {e}")
+
+
+    def _serialize_world(self, world: Self) -> dict:
+        """Serializes the world object to a dictionary."""
+        return {
+            'current_time': world.current_time,
+            'objects': self._serialize_objects(world.objects),
+            # Add other world attributes if necessary
+        }
+
+    def _serialize_objects(self, objects) -> dict:
+        """Serializes world objects."""
+        serialized_objects = {}
+        for position, obj_list in objects.items():
+            serialized_objects[str(position)] = [obj.to_dict() for obj in obj_list]
+        return serialized_objects
 
     def close(self):
         """

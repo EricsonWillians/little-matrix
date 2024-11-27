@@ -24,7 +24,7 @@ class AnimationState:
     start_pos: Tuple[float, float]
     target_pos: Tuple[float, float]
     progress: float = 0.0
-    duration: int = 10  # frames
+    duration: int = 5  # Reduced frames for faster animations
 
 class Renderer:
     """Manages visual rendering of the little-matrix simulation using Pygame."""
@@ -49,8 +49,9 @@ class Renderer:
         self.communication_timer: Dict[str, int] = {}
         self.animations: Dict[str, AnimationState] = {}
         self.debug_mode = False
-        self.show_grid = True
+        self.show_grid = config.renderer.effects.show_grid
         self.effects_enabled = config.renderer.effects
+        self.terrain_surface = None  # Surface for pre-rendered terrain
         self._initialize_pygame()
 
     def _calculate_cell_size(self) -> int:
@@ -65,7 +66,7 @@ class Renderer:
         pygame.init()
         pygame.display.set_caption(self.config.simulation.name)
 
-        flags = 0
+        flags = pygame.HWSURFACE | pygame.DOUBLEBUF
         if self.config.renderer.display.fullscreen:
             flags |= pygame.FULLSCREEN
         if self.config.renderer.display.resizable:
@@ -76,8 +77,8 @@ class Renderer:
             flags
         )
 
-        self.buffer = pygame.Surface((self.width, self.height))
-        self.font = pygame.font.SysFont('Arial', int(self.cell_size * 0.6))
+        self.buffer = pygame.Surface((self.width, self.height)).convert()
+        self.font = pygame.font.SysFont('Arial', int(self.cell_size * 0.6), bold=True)
         self.debug_font = pygame.font.SysFont('Courier New', 12)
 
         self.logger.info("Enhanced Pygame renderer initialized.")
@@ -97,13 +98,16 @@ class Renderer:
 
     def render(self):
         """Render the current state of the world."""
-        self.buffer.fill(self.colors['background'])  # Clear buffer
+        # Handle events
+        if not self.handle_events():
+            return False  # Signal to exit the simulation
 
-        if self.show_grid:
-            self._draw_grid()
+        # Pre-render static terrain once
+        if self.terrain_surface is None:
+            self._pre_render_terrain()
 
-        # Draw terrain first
-        self._draw_terrain()
+        # Blit the terrain to the buffer
+        self.buffer.blit(self.terrain_surface, (0, 0))
 
         # Draw only WorldObjects (not terrain features)
         for position, objects in self.world.objects.items():
@@ -113,7 +117,7 @@ class Renderer:
 
         # Draw agents with animations
         for agent in self.world.agents.values():
-            self._handle_agent_animation(agent)
+            # self._handle_agent_animation(agent) # This works terribly, the simulation is already slow, and it gives the impression they're not moving.
             self._draw_agent(agent)
             self._draw_agent_communication(agent)
 
@@ -124,18 +128,13 @@ class Renderer:
         self.screen.blit(self.buffer, (0, 0))
         pygame.display.flip()
         self.clock.tick(self.fps)
+        return True  # Continue running
 
-    def _draw_grid(self):
-        """Draw the background grid."""
-        for x in range(0, self.width, self.cell_size):
-            pygame.draw.line(self.buffer, self.colors['grid'],
-                             (x, 0), (x, self.height), 1)
-        for y in range(0, self.height, self.cell_size):
-            pygame.draw.line(self.buffer, self.colors['grid'],
-                             (0, y), (self.width, y), 1)
+    def _pre_render_terrain(self):
+        """Pre-render the terrain to a separate surface."""
+        self.terrain_surface = pygame.Surface((self.width, self.height)).convert()
+        self.terrain_surface.fill(self.colors['background'])
 
-    def _draw_terrain(self):
-        """Render the terrain grid."""
         terrain_colors = self.colors.get('terrain', {})
         default_color = (139, 69, 19)  # Default brown
 
@@ -150,7 +149,7 @@ class Renderer:
                     color = default_color
 
                 tile_rect.topleft = (x * self.cell_size, y * self.cell_size)
-                pygame.draw.rect(self.buffer, color, tile_rect)
+                pygame.draw.rect(self.terrain_surface, color, tile_rect)
 
                 # Draw terrain symbol if it has one
                 if hasattr(terrain_feature, 'symbol'):
@@ -160,7 +159,19 @@ class Renderer:
                         self.colors['text']
                     )
                     text_rect = text_surface.get_rect(center=tile_rect.center)
-                    self.buffer.blit(text_surface, text_rect)
+                    self.terrain_surface.blit(text_surface, text_rect)
+
+        if self.show_grid:
+            self._draw_grid_on_surface(self.terrain_surface)
+
+    def _draw_grid_on_surface(self, surface):
+        """Draw the grid on a given surface."""
+        for x in range(0, self.width, self.cell_size):
+            pygame.draw.line(surface, self.colors['grid'],
+                             (x, 0), (x, self.height), 1)
+        for y in range(0, self.height, self.cell_size):
+            pygame.draw.line(surface, self.colors['grid'],
+                             (0, y), (self.width, y), 1)
 
     def _handle_agent_animation(self, agent: Agent):
         """Update animation state for smooth agent movement."""
@@ -205,13 +216,15 @@ class Renderer:
         agent_type_config = next((t for t in self.config.agents.customization.types if t.name == agent.agent_type), None)
         if agent_type_config:
             color = tuple(agent_type_config.color)
+            symbol = agent_type_config.symbol
         else:
             color = self.colors['agent_default']
+            symbol = 'A'
 
+        # Draw agent rectangle
         pygame.draw.rect(self.buffer, color, rect)
 
         # Draw agent symbol
-        symbol = agent_type_config.symbol if agent_type_config else 'A'
         text_surface = self.font.render(symbol, True, self.colors['text'])
         text_rect = text_surface.get_rect(center=rect.center)
         self.buffer.blit(text_surface, text_rect)
@@ -222,7 +235,7 @@ class Renderer:
 
     def _draw_health_bar(self, agent: Agent, rect: pygame.Rect):
         """Draw health bar above the agent."""
-        health_percentage = agent.state['health'] / 100.0
+        health_percentage = agent.state.get('health', 100) / 100.0
         bar_width = rect.width
         bar_height = 5
         bar_x = rect.x
@@ -247,13 +260,19 @@ class Renderer:
             self.cell_size
         )
 
-        # Get object color
-        if hasattr(obj, 'type') and obj.type in ['food', '*']:
-            color = (255, 215, 0)  # Gold for food
-        elif hasattr(obj, 'type') and obj.type in ['water', '~']:
-            color = (0, 191, 255)  # Deep sky blue for water
+        # Get object color based on type
+        if hasattr(obj, 'type'):
+            object_type = obj.type.lower()
+            if object_type == 'food':
+                color = self.colors['resource']
+            elif object_type == 'water':
+                color = (65, 105, 225)  # Use water color from terrain
+            elif object_type == 'metal':
+                color = (192, 192, 192)  # Silver for metal
+            else:
+                color = self.colors['resource']
         else:
-            color = self.colors.get('resource', (0, 255, 0))  # Default green
+            color = self.colors['resource']
 
         pygame.draw.rect(self.buffer, color, rect)
 
@@ -315,6 +334,8 @@ class Renderer:
     def toggle_grid(self):
         """Toggle grid display."""
         self.show_grid = not self.show_grid
+        # Re-render terrain to update grid visibility
+        self._pre_render_terrain()
 
     def handle_events(self) -> bool:
         """Handle Pygame events."""

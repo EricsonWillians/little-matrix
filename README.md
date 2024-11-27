@@ -1,10 +1,4 @@
-Here’s a polished and professional README for the **Little Matrix Simulation** project, considering all recent updates and features:
-
----
-
 # Little Matrix Simulation
-
-![Little Matrix Simulation Logo](src/assets/logo.webp)
 
 Welcome to the **Little Matrix Simulation**, a sophisticated, autonomous agent-based simulation powered by advanced Language Learning Models (LLMs) from Hugging Face. This project demonstrates how agents perceive their environment, make intelligent decisions, and interact within a simulated world using natural language processing capabilities.
 
@@ -27,44 +21,44 @@ Welcome to the **Little Matrix Simulation**, a sophisticated, autonomous agent-b
 
 The **Little Matrix Simulation** models a dynamic environment where multiple agents operate autonomously. Each agent leverages the Hugging Face Inference API to make informed decisions based on its state and perceptions of the environment. The simulation includes:
 
-- **Autonomous Agents:** Intelligent entities capable of perception, decision-making, actions, and communication.
-- **Dynamic Environment:** A grid-based world populated with various objects, resources, and terrain types.
-- **Advanced Decision-Making:** Agents use LLMs to generate actions and communicate effectively.
-- **Real-Time Visualization:** Pygame-based rendering for a live view of simulation dynamics.
+- **Autonomous Agents:** Intelligent entities capable of perception, decision-making, actions, and communication. [cite: 223]
+- **Dynamic Environment:** A grid-based world populated with various objects, resources, and terrain types. [cite: 223]
+- **Advanced Decision-Making:** Agents use LLMs to generate actions and communicate effectively. [cite: 223]
+- **Real-Time Visualization:** Pygame-based rendering for a live view of simulation dynamics. [cite: 223]
 
-This project demonstrates LLM integration with agent-based modeling, allowing for complex, interactive simulations.
+This project demonstrates LLM integration with agent-based modeling, allowing for complex, interactive simulations. [cite: 223]
 
 ## Features
 
-- **Agent Perception:** Agents detect nearby entities and objects within their perception radius.
-- **LLM-Powered Decisions:** Hugging Face's Phi-3 model supports reasoning, action selection, and language-based interactions.
-- **Inter-Agent Communication:** Agents communicate using natural language, allowing for collaboration and complex interactions.
-- **Resource Management:** Agents collect resources to maintain energy and health.
-- **Real-Time Visualization:** A Pygame-based renderer provides a graphical simulation display.
-- **Extensible Architecture:** Easily add new agent behaviors, object types, and environmental features.
+- **Agent Perception:** Agents detect nearby entities and objects within their perception radius. [cite: 223]
+- **LLM-Powered Decisions:** Hugging Face's Phi-3 model supports reasoning, action selection, and language-based interactions. [cite: 223]
+- **Inter-Agent Communication:** Agents communicate using natural language, allowing for collaboration and complex interactions. [cite: 25, 26]
+- **Resource Management:** Agents collect resources to maintain energy and health. [cite: 223]
+- **Real-Time Visualization:** A Pygame-based renderer provides a graphical simulation display. [cite: 223]
+- **Extensible Architecture:** Easily add new agent behaviors, object types, and environmental features. [cite: 223]
 
 ## Architecture
 
 The project is organized into several core components:
 
 1. **LLM Client (`llm/client.py`):**
-   - Interfaces with Hugging Face's Inference API.
-   - Manages prompt generation, response handling, and secure API interactions.
+   - Interfaces with Hugging Face's Inference API. [cite: 217]
+   - Manages prompt generation, response handling, and secure API interactions. [cite: 217]
 
 2. **Prompt Manager (`llm/prompts.py`):**
-   - Manages all prompt templates and dynamically generates prompts based on agent states.
+   - Manages all prompt templates and dynamically generates prompts based on agent states. [cite: 287]
 
 3. **Agent (`agents/agent.py`):**
-   - Represents individual agents within the simulation.
-   - Handles perception, decision-making, action execution, and communication.
+   - Represents individual agents within the simulation. [cite: 58]
+   - Handles perception, decision-making, action execution, and communication. [cite: 58]
 
 4. **Renderer (`renderer.py`):**
-   - Uses Pygame for real-time simulation rendering.
-   - Displays agents, objects, and environmental interactions.
+   - Uses Pygame for real-time simulation rendering. [cite: 399]
+   - Displays agents, objects, and environmental interactions. [cite: 399]
 
 5. **Environment (`environment/world.py` and `environment/objects.py`):**
-   - Defines the simulation world and its objects.
-   - Manages state and interactions of objects and agents.
+   - Defines the simulation world and its objects. [cite: 136, 149]
+   - Manages state and interactions of objects and agents. [cite: 136, 149]
 
 6. **Main Simulation (`src/main.py`):**
    - Initializes and runs the main simulation loop.
@@ -87,49 +81,49 @@ Ensure you have the following installed:
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yourusername/little-matrix-simulation.git
+   git clone [https://github.com/yourusername/little-matrix-simulation.git](https://github.com/yourusername/little-matrix-simulation.git)
    cd little-matrix-simulation
-   ```
+````
 
-2. **Install Dependencies with Poetry**
+2.  **Install Dependencies with Poetry**
 
-   Ensure [Poetry](https://python-poetry.org/docs/#installation) is installed on your system.
+    Ensure [Poetry](https://www.google.com/url?sa=E&source=gmail&q=https://python-poetry.org/docs/#installation) is installed on your system.
 
-   ```bash
-   poetry install
-   ```
+    ```bash
+    poetry install
+    ```
 
-3. **Activate the Virtual Environment**
+3.  **Activate the Virtual Environment**
 
-   Use Poetry to activate the environment:
+    Use Poetry to activate the environment:
 
-   ```bash
-   poetry shell
-   ```
+    ```bash
+    poetry shell
+    ```
 
 ### Configuration
 
-1. **Hugging Face API Key**
+1.  **Hugging Face API Key**
 
-   Obtain a Hugging Face API key by creating an account on [Hugging Face](https://huggingface.co/) and navigating to your account settings.
+    Obtain a Hugging Face API key by creating an account on [Hugging Face](https://www.google.com/url?sa=E&source=gmail&q=https://huggingface.co/) and navigating to your account settings.
 
-2. **Set Environment Variables**
+2.  **Set Environment Variables**
 
-   To securely store your API keys, set them as environment variables:
+    To securely store your API keys, set them as environment variables:
 
-   ```bash
-   export HUGGINGFACE_API_KEY="your_huggingface_api_key"
-   export HUGGINGFACE_MODEL_NAME="microsoft/Phi-3-mini-4k-instruct"
-   ```
+    ```bash
+    export HUGGINGFACE_API_KEY="your_huggingface_api_key"
+    export HUGGINGFACE_MODEL_NAME="microsoft/Phi-3-mini-4k-instruct"
+    ```
 
-   Alternatively, create a `.env` file in the project root with:
+    Alternatively, create a `.env` file in the project root with:
 
-   ```env
-   HUGGINGFACE_API_KEY=your_huggingface_api_key
-   HUGGINGFACE_MODEL_NAME=microsoft/Phi-3-mini-4k-instruct
-   ```
+    ```env
+    HUGGINGFACE_API_KEY=your_huggingface_api_key
+    HUGGINGFACE_MODEL_NAME=microsoft/Phi-3-mini-4k-instruct
+    ```
 
-   Use `python-dotenv` to load these variables if you prefer this method.
+    Use `python-dotenv` to load these variables if you prefer this method.
 
 ## Usage
 
@@ -141,9 +135,9 @@ poetry run python src/main.py --render
 
 ### Command-Line Arguments
 
-- `--render`: Launches the Pygame renderer to visualize the simulation.
-- `--no-render`: Runs the simulation without rendering (ideal for headless environments).
-- `--timesteps`: Specifies the number of simulation steps (default: 1000).
+  - `--render`: Launches the Pygame renderer to visualize the simulation.
+  - `--no-render`: Runs the simulation without rendering (ideal for headless environments).
+  - `--timesteps`: Specifies the number of simulation steps (default: 1000).
 
 **Example:**
 
@@ -153,7 +147,7 @@ poetry run python src/main.py --render --timesteps 200
 
 ### Simulation Controls
 
-- **Quit Simulation:** Close the Pygame window or press `Escape` to exit.
+  - **Quit Simulation:** Close the Pygame window or press `Escape` to exit.
 
 ## Project Structure
 
@@ -192,64 +186,65 @@ poetry run python src/main.py --render --timesteps 200
     └── test_utils.py
 ```
 
-- **agents/**: Contains the `Agent` class and related behaviors.
-- **environment/**: Defines the world and its objects.
-- **llm/**: Manages LLM interactions and prompt templates.
-- **renderer.py**: Handles the simulation's graphical rendering.
-- **utils/**: Contains utility files, such as configurations and logging.
-- **assets/**: Holds assets, like logos.
-- **tests/**: Unit tests for various modules.
+  - **agents/**: Contains the `Agent` class and related behaviors.
+  - **environment/**: Defines the world and its objects.
+  - **llm/**: Manages LLM interactions and prompt templates.
+  - **renderer.py**: Handles the simulation's graphical rendering.
+  - **utils/**: Contains utility files, such as configurations and logging.
+  - **assets/**: Holds assets, like logos.
+  - **tests/**: Unit tests for various modules.
 
 ## Contributing
 
-Contributions are highly encouraged! To contribute:
+Contributions are highly encouraged\! To contribute:
 
-1. **Fork the Repository**
-2. **Create a Feature Branch**
+1.  **Fork the Repository**
 
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+2.  **Create a Feature Branch**
 
-3. **Commit Your Changes**
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
 
-   ```bash
-   git commit -m "Add your message here"
-   ```
+3.  **Commit Your Changes**
 
-4. **Push to the Branch**
+    ```bash
+    git commit -m "Add your message here"
+    ```
 
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+4.  **Push to the Branch**
 
-5. **Open a Pull Request**
+    ```bash
+    git push origin feature/your-feature-name
+    ```
 
-   Describe your changes and submit for review.
+5.  **Open a Pull Request**
+
+    Describe your changes and submit for review.
 
 ### Guidelines
 
-- **Code Quality:** Follow PEP 8 standards.
-- **Documentation:** Ensure code is well-documented.
-- **Testing:** Include tests for new features or fixes.
-- **Issues:** Report bugs or request features via GitHub Issues.
+  - **Code Quality:** Follow PEP 8 standards.
+  - **Documentation:** Ensure code is well-documented.
+  - **Testing:** Include tests for new features or fixes.
+  - **Issues:** Report bugs or request features via GitHub Issues.
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+This project is licensed under the [Apache License 2.0](https://www.google.com/url?sa=E&source=gmail&q=LICENSE).
 
 ## Acknowledgments
 
-- **[Hugging Face](https://huggingface.co/):** For LLM support.
-- **[LangChain](https://github.com/hwchase17/langchain):** Facilitating LLM integrations.
-- **[Pygame](https://www.pygame.org/):** For real-time visualization.
-- **Community Contributors:** Thanks to all contributors who’ve helped improve this project.
+  - **[Hugging Face](https://www.google.com/url?sa=E&source=gmail&q=https://huggingface.co/):** For LLM support.
+  - **[LangChain](https://www.google.com/url?sa=E&source=gmail&q=https://github.com/hwchase17/langchain):** Facilitating LLM integrations.
+  - **[Pygame](https://www.google.com/url?sa=E&source=gmail&q=https://www.pygame.org/):** For real-time visualization.
+  - **Community Contributors:** Thanks to all contributors who’ve helped improve this project.
 
----
+-----
 
-For questions or support, reach out via [email](mailto:your.email@example.com) or open a GitHub issue.
+For questions or support, reach out via [email](https://www.google.com/url?sa=E&source=gmail&q=mailto:your.email@example.com) or open a GitHub issue.
 
----
+-----
 
 ## Sample Configuration (config.yaml)
 
@@ -368,10 +363,6 @@ environment:
         Foggy: 0.1
         Stormy: 0.1
 
-llm:
-  api_key: "YOUR_API_KEY_HERE"
-  model: "microsoft/Phi-3-mini-4k-instruct"
-
 # Agent Settings
 agents:
   count: 10                                         # Increased number of agents for a much bigger world
@@ -452,69 +443,4 @@ agents:
 # Renderer (Pygame) Configuration
 renderer:
   display:
-    size: [1600, 1200]                               # Larger display size for a huge world view
-    fps: 60                                          # Smooth frame rate for rendering
-    fullscreen: false                                # Option to run in fullscreen mode
-    resizable: true                                  # Allow window resizing
-  colors:
-    background: [10, 10, 40]                         # Darker background for contrast
-    agent_default: [255, 255, 255]                   # Default white color for agents without specific type
-    resource: [34, 139, 34]                          # Green for resources
-    terrain:
-      Plains: [50, 205, 50]
-      Forest: [34, 139, 34]
-      Mountain: [139, 137, 137]
-      Water: [28, 107, 160]
-    environment_effects:
-      fog: [200, 200, 200, 180]                      # Dense fog overlay
-      rain: [70, 130, 180, 180]                      # Dark rain overlay for heavy weather
-      storm: [75, 0, 130, 150]                       # Stormy purple for dramatic effect
-  effects:
-    show_shadows: true                               # Enable shadows for a more realistic feel
-    particle_effects: true                           # Enable particle effects for agents and weather
-    weather_effects: true                            # Toggle for weather visualization
-    smooth_movement: true                            # Smooth animations for agent movement
-    display_hud: true                                # Display Heads-Up Display with simulation stats
-    show_agent_names: false                          # Option to display agent names
-    show_health_bars: true                           # Display health bars above agents
-
-# Logging Configuration
-logging:
-  level: "INFO"                                      # Set log level (DEBUG, INFO, WARNING, ERROR)
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: "simulation.log"                             # Log file output, or leave blank for console-only
-  rotation:
-    enabled: true
-    max_bytes: 10485760                              # 10 MB per log file
-    backup_count: 5                                  # Keep up to 5 backup log files
-
-# Advanced Settings (Optional)
-advanced:
-  performance:
-    max_agent_threads: 16                            # Increased threads for processing in huge world
-    tick_rate: 0.05                                  # Delay between ticks for pacing
-    use_multiprocessing: true                        # Enable multiprocessing for better performance
-  experiment_mode:
-    enabled: true                                    # Enable experimental features
-    data_collection: true                            # Collect agent behavior data
-    save_interval: 50                                # Interval to save collected data (in timesteps)
-    data_fields:
-      - "agent_positions"
-      - "agent_states"
-      - "resource_levels"
-      - "weather_conditions"
-  ai_debugging:
-    enabled: true                                     # AI diagnostics for testing agent decisions
-    log_decisions: true                               # Log detailed agent decisions and actions
-    visualize_decision_trees: true                    # Generate visualizations of agent decision trees
-    profiling:
-      enabled: true
-      output_file: "profiling.log"
-  compatibility_mode:
-    enabled: false                                    # Enable if running on older hardware
-    reduce_graphics: true                             # Reduce graphics quality for performance
-    limit_agents: 50                                  # Limit number of agents for performance
-
-```
-
-Happy Simulating!
+    size: [1600, 1200]                               # Larger display size for a huge
